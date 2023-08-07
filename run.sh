@@ -1,0 +1,1 @@
+python run_example/run_combo.py --dynamics-hidden-dims 200 200

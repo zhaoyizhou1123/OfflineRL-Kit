@@ -1,0 +1,7 @@
+name: offline
+channels:
+- pytorch
+dependencies:
+- cudatoolkit=11.3.1=h2bc3f7f_2
+- python=3.7.16
+- pip

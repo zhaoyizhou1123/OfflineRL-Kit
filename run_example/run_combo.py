@@ -1,3 +1,4 @@
+# import __init__
 import argparse
 import os
 import sys
@@ -40,7 +41,7 @@ walker2d-medium-expert-v2: rollout-length=1, cql-weight=5.0
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--algo-name", type=str, default="combo")
-    parser.add_argument("--task", type=str, default="hopper-medium-v2")
+    parser.add_argument("--task", type=str, default="hopper-medium-v2", help="maze") # Self-constructed environment
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--actor-lr", type=float, default=1e-4)
     parser.add_argument("--critic-lr", type=float, default=3e-4)
@@ -85,8 +86,13 @@ def get_args():
 
 
 def train(args=get_args()):
+    print(args)
     # create env and dataset
-    env = gym.make(args.task)
+    if args.task == 'maze': # self-constructed
+        from maze.scripts.create_maze_dataset import create_env_dataset
+        point_maze = create_env_dataset(args)
+    else:
+        env = gym.make(args.task)
     dataset = qlearning_dataset(env)
     args.obs_shape = env.observation_space.shape
     args.action_dim = np.prod(env.action_space.shape)
@@ -131,6 +137,8 @@ def train(args=get_args()):
 
     # create dynamics
     load_dynamics_model = True if args.load_dynamics_path else False
+
+    # print(f"dynamics_hidden_dims = {args.dynamics_hidden_dims}")
     dynamics_model = EnsembleDynamicsModel(
         obs_dim=np.prod(args.obs_shape),
         action_dim=args.action_dim,

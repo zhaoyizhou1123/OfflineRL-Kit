@@ -7,6 +7,7 @@ from offlinerlkit.nets import EnsembleLinear
 
 
 class Swish(nn.Module):
+    # Activation function
     def __init__(self) -> None:
         super(Swish, self).__init__()
 

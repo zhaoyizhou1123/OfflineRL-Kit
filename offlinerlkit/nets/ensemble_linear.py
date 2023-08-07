@@ -34,7 +34,7 @@ class EnsembleLinear(nn.Module):
         if len(x.shape) == 2:
             x = torch.einsum('ij,bjk->bik', x, weight)
         else:
-            x = torch.einsum('bij,bjk->bik', x, weight)
+            x = torch.einsum('bij,bjk->bik', x, weight) # batch matrix multiplication
 
         x = x + bias
 
