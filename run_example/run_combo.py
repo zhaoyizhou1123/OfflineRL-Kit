@@ -1,4 +1,4 @@
-# import __init__
+import __init__
 import argparse
 import os
 import sys
@@ -11,6 +11,7 @@ import numpy as np
 import torch
 
 
+# import __init__
 from offlinerlkit.nets import MLP
 from offlinerlkit.modules import ActorProb, Critic, TanhDiagGaussian, EnsembleDynamicsModel
 from offlinerlkit.dynamics import EnsembleDynamics
@@ -21,6 +22,7 @@ from offlinerlkit.buffer import ReplayBuffer
 from offlinerlkit.utils.logger import Logger, make_log_dirs
 from offlinerlkit.policy_trainer import MBPolicyTrainer
 from offlinerlkit.policy import COMBOPolicy
+from pointmaze.utils.trajectory import Trajs2Dict
 
 
 """
@@ -41,7 +43,19 @@ walker2d-medium-expert-v2: rollout-length=1, cql-weight=5.0
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--algo-name", type=str, default="combo")
-    parser.add_argument("--task", type=str, default="hopper-medium-v2", help="maze") # Self-constructed environment
+    parser.add_argument("--task", type=str, default="maze", help="maze") # Self-constructed environment
+
+    parser.add_argument('--maze_config_file', type=str, default='./pointmaze/config/maze2_simple_moredata.json')
+    parser.add_argument('--data_file', type=str, default='./pointmaze/dataset/maze2_smds_acc.dat')
+    parser.add_argument('--debug',action='store_true', help='Print debuuging info if true')
+    parser.add_argument('--render', action='store_true')
+    # parser.add_argument('--log_to_wandb',action='store_true', help='Set up wandb')
+    # parser.add_argument('--tb_path', type=str, default=None, help="./logs/stitch/, Folder to tensorboard logs" )
+    parser.add_argument('--env_type', type=str, default='pointmaze', help='pointmaze or ?')
+    parser.add_argument('--algo', type=str, default='stitch-mlp', help="rcsl-mlp, rcsl-dt or stitch-mlp, stitch-dt")
+    parser.add_argument('--horizon', type=int, default=200, help="Should be consistent with dataset")
+
+
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--actor-lr", type=float, default=1e-4)
     parser.add_argument("--critic-lr", type=float, default=3e-4)
@@ -76,7 +90,7 @@ def get_args():
     parser.add_argument("--real-ratio", type=float, default=0.5)
     parser.add_argument("--load-dynamics-path", type=str, default=None)
 
-    parser.add_argument("--epoch", type=int, default=1000)
+    parser.add_argument("--epoch", type=int, default=20)
     parser.add_argument("--step-per-epoch", type=int, default=1000)
     parser.add_argument("--eval_episodes", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=256)
@@ -89,12 +103,27 @@ def train(args=get_args()):
     print(args)
     # create env and dataset
     if args.task == 'maze': # self-constructed
-        from maze.scripts.create_maze_dataset import create_env_dataset
+        
+        from pointmaze.envs.create_maze_dataset import create_env_dataset
         point_maze = create_env_dataset(args)
+        env = point_maze.env_cls()
+        trajs = point_maze.dataset[0] # first object is trajs
+        dataset = Trajs2Dict(trajs)
+
+        # Add a get_true_observation method for Env
+        def get_true_observation(obs):
+            '''
+            obs, obs received from pointmaze Env. Dict.
+            '''
+            return obs['observation']
+    
+        setattr(env, 'get_true_observation', get_true_observation)
+
+        args.obs_shape = env.observation_space['observation'].shape
     else:
         env = gym.make(args.task)
-    dataset = qlearning_dataset(env)
-    args.obs_shape = env.observation_space.shape
+        dataset = qlearning_dataset(env)
+        args.obs_shape = env.observation_space.shape
     args.action_dim = np.prod(env.action_space.shape)
     args.max_action = env.action_space.high[0]
 
@@ -104,7 +133,9 @@ def train(args=get_args()):
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
     torch.backends.cudnn.deterministic = True
-    env.seed(args.seed)
+
+    if hasattr(env, 'seed'):
+        env.seed(args.seed)
 
     # create policy model
     actor_backbone = MLP(input_dim=np.prod(args.obs_shape), hidden_dims=args.hidden_dims)
@@ -162,6 +193,7 @@ def train(args=get_args()):
     )
 
     if args.load_dynamics_path:
+        print(f"Load dynamics from {args.load_dynamics_path}")
         dynamics.load(args.load_dynamics_path)
 
     # create policy
@@ -229,15 +261,17 @@ def train(args=get_args()):
         logger=logger,
         rollout_setting=(args.rollout_freq, args.rollout_batch_size, args.rollout_length),
         epoch=args.epoch,
-        step_per_epoch=args.step_per_epoch,
+        step_per_epoch=args.step_per_epoch, # step per epoch is changed to horizon
         batch_size=args.batch_size,
         real_ratio=args.real_ratio,
         eval_episodes=args.eval_episodes,
-        lr_scheduler=lr_scheduler
+        lr_scheduler=lr_scheduler,
+        horizon = args.horizon,
     )
 
     # train
     if not load_dynamics_model:
+        print(f"Train dynamics")
         dynamics.train(real_buffer.sample_all(), logger, max_epochs_since_update=5)
     
     policy_trainer.train()

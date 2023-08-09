@@ -109,6 +109,7 @@ class COMBOPolicy(CQLPolicy):
     
     def learn(self, batch: Dict) -> Dict[str, float]:
         real_batch, fake_batch = batch["real"], batch["fake"]
+        # Mix data from real (offline) and fake (rollout)
         mix_batch = {k: torch.cat([real_batch[k], fake_batch[k]], 0) for k in real_batch.keys()}
 
         obss, actions, next_obss, rewards, terminals = mix_batch["observations"], mix_batch["actions"], \

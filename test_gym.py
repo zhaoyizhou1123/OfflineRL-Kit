@@ -1,11 +1,13 @@
-import gym
-import d4rl # Import required to register environments, you may need to also import the submodule
+# import gym
+# import d4rl # Import required to register environments, you may need to also import the submodule
+import gymnasium
+
 
 # Create the environment
-env = gym.make('maze2d-umaze-v1')
+env = gymnasium.make('PointMaze_UMazeDense-v3')
 
 # d4rl abides by the OpenAI gym interface
-env.reset()
+obs = env.reset()
 env.step(env.action_space.sample())
 
 # Each task is associated with a dataset

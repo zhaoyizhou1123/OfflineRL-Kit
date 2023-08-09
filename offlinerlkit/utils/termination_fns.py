@@ -109,14 +109,23 @@ def termination_fn_pen(obs, act, next_obs):
     obj_pos = next_obs[:, 24:27]
     done = obj_pos[:, 2] < 0.075
 
-    done = done[:,None]
+    done = done[:,None] # expand dimension -1
     return done
 
-def terminaltion_fn_door(obs, act, next_obs):
+def termination_fn_door(obs, act, next_obs):
     assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
 
     done = np.array([False] * obs.shape[0])
 
+    done = done[:, None]
+    return 
+
+# Default type, always false
+def termination_fn_default(obs, act, next_obs):
+    '''
+    Return np.ndarray (obs.shape[0], 1)
+    '''
+    done = np.array([False] * obs.shape[0])
     done = done[:, None]
     return done
 
@@ -144,6 +153,8 @@ def get_termination_fn(task):
     elif 'pen' in task:
         return termination_fn_pen
     elif 'door' in task:
-        return terminaltion_fn_door
+        return termination_fn_door
+    elif 'maze' in task:
+        return termination_fn_default
     else:
-        raise np.zeros
+        raise NotImplementedError
