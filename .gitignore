@@ -10,3 +10,5 @@
 **/_log
 *.out
 *.dat
+*.sif
+!backup/*.out
