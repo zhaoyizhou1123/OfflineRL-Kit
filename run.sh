@@ -4,15 +4,17 @@ cql_weight=1 # combo
 penalty_coef=1 # mopo
 epoch=50
 
-for seed in 0 1 2 3
-do
-python run_example/run_combo.py --seed ${seed} \
-    --cql-weight ${cql_weight} \
-    --epoch ${epoch}
+# for seed in 0 1 2 3
+# do
+# python run_example/run_combo.py --seed ${seed} \
+#     --cql-weight ${cql_weight} \
+#     --epoch ${epoch}
 
-python run_example/run_mopo.py --seed ${seed} \
-    --penalty-coef ${penalty_coef}\
-    --epoch ${epoch}
-    # --load-dynamics-path ${d_path} \
+# python run_example/run_mopo.py --seed ${seed} \
+#     --penalty-coef ${penalty_coef}\
+#     --epoch ${epoch}
+#     # --load-dynamics-path ${d_path} \
 
-done
+# done
+
+python run_example/run_cql.py

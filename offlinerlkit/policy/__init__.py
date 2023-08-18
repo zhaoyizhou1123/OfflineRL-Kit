@@ -15,6 +15,9 @@ from offlinerlkit.policy.model_based.mobile import MOBILEPolicy
 from offlinerlkit.policy.model_based.rambo import RAMBOPolicy
 from offlinerlkit.policy.model_based.combo import COMBOPolicy
 
+# others
+from offlinerlkit.policy.others.diffusion import DiffusionBC
+
 
 __all__ = [
     "BasePolicy",
@@ -28,5 +31,6 @@ __all__ = [
     "MOPOPolicy",
     "MOBILEPolicy",
     "RAMBOPolicy",
-    "COMBOPolicy"
+    "COMBOPolicy",
+    "DiffusionBC"
 ]

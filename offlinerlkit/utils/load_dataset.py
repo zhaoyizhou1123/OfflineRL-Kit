@@ -1,6 +1,14 @@
+'''
+Add trajectory dataset, for rcsl methods
+'''
+
 import numpy as np
 import torch
 import collections
+import gym
+import d4rl
+import pickle
+import os
 
 
 def qlearning_dataset(env, dataset=None, terminate_on_end=False, **kwargs):
@@ -83,7 +91,6 @@ def qlearning_dataset(env, dataset=None, terminate_on_end=False, **kwargs):
         'terminals': np.array(done_),
     }
 
-
 class SequenceDataset(torch.utils.data.Dataset):
     def __init__(self, dataset, max_len, max_ep_len=1000, device="cpu"):
         super().__init__()
@@ -162,3 +169,56 @@ class SequenceDataset(torch.utils.data.Dataset):
         masks = torch.from_numpy(masks).to(dtype=torch.float32, device=self.device)
 
         return inputs, targets, masks
+    
+
+# From https://github.com/kzl/decision-transformer/blob/master/gym/data/download_d4rl_datasets.py 
+
+def download_d4rl_datasets(data_dir: str ='./dataset/'):
+    '''
+    Download all datasets needed for experiments, and re-combine them as trajectory datasets
+
+    Args:
+        data_dir: path to store dataset file
+    '''
+    datasets = []
+    os.makedirs(data_dir, exist_ok=True)
+
+    for env_name in ['halfcheetah', 'hopper', 'walker2d']:
+        for dataset_type in ['medium', 'medium-replay', 'expert', 'medium-expert']:
+            name = f'{env_name}-{dataset_type}-v2'
+            env = gym.make(name)
+            dataset = env.get_dataset()
+
+            N = dataset['rewards'].shape[0] # number of data (s,a,r)
+            data_ = collections.defaultdict(list)
+
+            use_timeouts = False
+            if 'timeouts' in dataset:
+                use_timeouts = True
+
+            episode_step = 0
+            paths = []
+            for i in range(N): # Loop through data points
+                done_bool = bool(dataset['terminals'][i])
+                if use_timeouts:
+                    final_timestep = dataset['timeouts'][i]
+                else:
+                    final_timestep = (episode_step == 1000-1)
+                for k in ['observations', 'next_observations', 'actions', 'rewards', 'terminals']:
+                    data_[k].append(dataset[k][i])
+                if done_bool or final_timestep:
+                    episode_step = 0
+                    episode_data = {}
+                    for k in data_:
+                        episode_data[k] = np.array(data_[k])
+                    paths.append(episode_data)
+                    data_ = collections.defaultdict(list)
+                episode_step += 1
+
+            returns = np.array([np.sum(p['rewards']) for p in paths])
+            num_samples = np.sum([p['rewards'].shape[0] for p in paths])
+            print(f'Number of samples collected: {num_samples}')
+            print(f'Trajectory returns: mean = {np.mean(returns)}, std = {np.std(returns)}, max = {np.max(returns)}, min = {np.min(returns)}')
+
+            with open(os.path.join(data_dir, f'{name}.pkl'), 'wb') as f:
+                pickle.dump(paths, f)

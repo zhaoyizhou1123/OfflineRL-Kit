@@ -2,6 +2,7 @@
 .idea/
 **/.DS_STORE
 **/log
+logs
 **/build
 **/dist
 **/*.egg-info
@@ -11,4 +12,7 @@
 *.out
 *.dat
 *.sif
+*.sbatch
 !backup/*.out
+test.py
+dataset/

@@ -20,7 +20,7 @@ ERROR = 40
 BACKUP = 60
 
 DEFAULT_X_NAME = "timestep"
-ROOT_DIR = "log"
+ROOT_DIR = "logs/dynamics"
 
 
 class KVWriter(object):
