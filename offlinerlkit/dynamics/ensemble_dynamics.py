@@ -31,6 +31,11 @@ class EnsembleDynamics(BaseDynamics):
         obs: np.ndarray,
         action: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Dict]:
+        '''
+        Return:
+            reward (B,1) (if obs has batch)
+            terminal (B,1)
+        '''
         "imagine single forward step"
         obs_act = np.concatenate([obs, action], axis=-1)
         obs_act = self.scaler.transform(obs_act)
@@ -189,7 +194,7 @@ class EnsembleDynamics(BaseDynamics):
             mean, logvar = self.model(inputs_batch)
             inv_var = torch.exp(-logvar)
             # Average over batch and dim, sum over ensembles.
-            mse_loss_inv = (torch.pow(mean - targets_batch, 2) * inv_var).mean(dim=(1, 2))
+            mse_loss_inv = (torch.pow(mean - targets_batch, 2) * inv_var).mean(dim=(1, 2)) # MLE for Gaussian
             var_loss = logvar.mean(dim=(1, 2))
             loss = mse_loss_inv.sum() + var_loss.sum()
             loss = loss + self.model.get_decay_loss()

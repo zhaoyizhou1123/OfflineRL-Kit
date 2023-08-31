@@ -17,7 +17,8 @@ from offlinerlkit.policy.model_based.combo import COMBOPolicy
 
 # others
 from offlinerlkit.policy.others.diffusion import DiffusionBC
-
+from offlinerlkit.policy.rcsl.rcsl_gauss import RcslGaussianPolicy
+from offlinerlkit.policy.rcsl.rcsl import RcslPolicy
 
 __all__ = [
     "BasePolicy",
@@ -32,5 +33,7 @@ __all__ = [
     "MOBILEPolicy",
     "RAMBOPolicy",
     "COMBOPolicy",
-    "DiffusionBC"
+    "DiffusionBC",
+    "RcslPolicy",
+    "RcslGaussianPolicy"
 ]

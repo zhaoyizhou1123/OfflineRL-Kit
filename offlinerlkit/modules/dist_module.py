@@ -15,6 +15,9 @@ class NormalWrapper(torch.distributions.Normal):
 
 
 class TanhNormalWrapper(torch.distributions.Normal):
+    '''
+    perform tanh when sampling action
+    '''
     def log_prob(self, action, raw_action=None):
         if raw_action is None:
             raw_action = self.arctanh(action)
@@ -73,6 +76,21 @@ class DiagGaussian(nn.Module):
             shape[1] = -1
             sigma = (self.sigma_param.view(shape) + torch.zeros_like(mu)).exp()
         return NormalWrapper(mu, sigma)
+    
+    def get_dist_params(self, logits):
+        '''
+        Similar to forward, but returns mu and logvar
+        '''
+        mu = self.mu(logits)
+        if not self._unbounded:
+            mu = self._max * torch.tanh(mu)
+        if self._c_sigma:
+            logvar = torch.clamp(self.sigma(logits), min=self._sigma_min, max=self._sigma_max)
+        else:
+            shape = [1] * len(mu.shape)
+            shape[1] = -1
+            logvar = (self.sigma_param.view(shape) + torch.zeros_like(mu))
+        return mu, logvar
 
 
 class TanhDiagGaussian(DiagGaussian):

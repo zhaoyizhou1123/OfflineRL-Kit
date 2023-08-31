@@ -36,6 +36,45 @@ class ObsActDataset(Dataset):
         act_sample = self.actions[idx]
         return dict(obs=obs_sample, action=act_sample)
 
+class DictDataset(Dataset):
+    '''
+    From Dict to dataset
+    '''
+    def __init__(self, dict_dataset: Dict[str, np.ndarray]):
+        self.dataset = dict_dataset
+
+        # 'obss' and 'next_obss' key may have different names, store its name
+        if 'obss' in self.dataset.keys():
+            self.obss_key = 'obss'
+            self.next_obss_key = 'next_obss'
+        else:
+            self.obss_key = 'observations'
+            self.next_obss_key = 'next_observations'
+
+
+    def __len__(self):
+        return len(self.dataset[self.obss_key])
+    
+    def __getitem__(self, index) -> Dict[str, np.ndarray]:
+        '''
+        Return: Dict, with keys same as dict_dataset. Contain:
+            observations:
+            actions:
+            next_observations:
+            terminals:
+            rewards:
+            rtgs:
+        '''
+        return {
+            'observations': self.dataset[self.obss_key][index],
+            'next_observations': self.dataset[self.next_obss_key][index],
+            'actions': self.dataset['actions'][index],
+            'terminals': self.dataset['terminals'][index],
+            'rewards': self.dataset['rewards'][index],
+            'rtgs': self.dataset['rtgs'][index]
+        }
+
+
 class TrajCtxMixSampler:
     '''
     Sample trajs from mixed dataset

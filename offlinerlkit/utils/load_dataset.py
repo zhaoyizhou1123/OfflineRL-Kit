@@ -9,9 +9,12 @@ import gym
 import d4rl
 import pickle
 import os
+from typing import Optional
+
+from offlinerlkit.utils.cumsum import discount_cumsum
 
 
-def qlearning_dataset(env, dataset=None, terminate_on_end=False, **kwargs):
+def qlearning_dataset(env, dataset=None, terminate_on_end=False, get_rtg = False, **kwargs):
     """
     Returns datasets formatted for use by standard Q-learning algorithms,
     with observations, actions, next_observations, rewards, and a terminal
@@ -24,6 +27,7 @@ def qlearning_dataset(env, dataset=None, terminate_on_end=False, **kwargs):
         terminate_on_end (bool): Set done=True on the last timestep
             in a trajectory. Default is False, and will discard the
             last timestep in each trajectory.
+        get_rtg (bool): Include key 'rtgs' in the return dict if True. Default is False
         **kwargs: Arguments to pass to env.get_dataset().
 
     Returns:
@@ -32,10 +36,13 @@ def qlearning_dataset(env, dataset=None, terminate_on_end=False, **kwargs):
             actions: An N x dim_action array of actions.
             next_observations: An N x dim_obs array of next observations.
             rewards: An N-dim float array of rewards.
+            rtgs: An N-dim float array of rtgs. (has this key if get_rtg=True)
             terminals: An N-dim boolean array of "done" or episode termination flags.
     """
     if dataset is None:
         dataset = env.get_dataset(**kwargs)
+
+    # print(f"Successfully load dataset")
     
     has_next_obs = True if 'next_observations' in dataset.keys() else False
 
@@ -45,6 +52,10 @@ def qlearning_dataset(env, dataset=None, terminate_on_end=False, **kwargs):
     action_ = []
     reward_ = []
     done_ = []
+    rtg_ = []
+
+    acc_ret_traj_ = [] # Maintain accumulate return for one trajectory
+    ret = 0 # Maintain acc ret in one trajectory
 
     # The newer version of the dataset adds an explicit
     # timeouts field. Keep old method for backwards compatability.
@@ -54,6 +65,7 @@ def qlearning_dataset(env, dataset=None, terminate_on_end=False, **kwargs):
 
     episode_step = 0
     for i in range(N-1):
+        # print(f"Data point {i} / {N}")
         obs = dataset['observations'][i].astype(np.float32)
         if has_next_obs:
             new_obs = dataset['next_observations'][i].astype(np.float32)
@@ -67,29 +79,73 @@ def qlearning_dataset(env, dataset=None, terminate_on_end=False, **kwargs):
             final_timestep = dataset['timeouts'][i]
         else:
             final_timestep = (episode_step == env._max_episode_steps - 1)
-        if (not terminate_on_end) and final_timestep:
+
+        if (not terminate_on_end) and final_timestep: # reach timeout, usually throw away timeout data
             # Skip this transition and don't apply terminals on the last step of an episode
+
+            # Update rtg for this traj
+            if get_rtg:
+                rtg_traj_ = [ret - acc_ret for acc_ret in acc_ret_traj_]
+                rtg_ += rtg_traj_
+
+                rtg_traj_ = []
+            ret = 0
             episode_step = 0
-            continue  
-        if done_bool or final_timestep:
+            continue  # skip this data
+
+        # terminate_on_end (rare) or not timeout
+        if done_bool or final_timestep: # Most cases: done_bool, i.e., reach terminal
             episode_step = 0
-            if not has_next_obs:
-                continue
+            if not has_next_obs: # if no next_obs, just throw away; else use this data
+                if get_rtg:
+                    rtg_traj_ = [ret - acc_ret for acc_ret in acc_ret_traj_]
+                    rtg_ += rtg_traj_
+                    
+                    rtg_traj_ = []
+                ret = 0
+                continue # skip this data
 
         obs_.append(obs)
         next_obs_.append(new_obs)
         action_.append(action)
         reward_.append(reward)
         done_.append(done_bool)
+
+        if get_rtg:
+            acc_ret_traj_.append(ret)
+        ret += reward
         episode_step += 1
 
-    return {
-        'observations': np.array(obs_),
-        'actions': np.array(action_),
-        'next_observations': np.array(next_obs_),
-        'rewards': np.array(reward_),
-        'terminals': np.array(done_),
-    }
+        if done_bool or final_timestep: # for (done_bool or final_timestep) and has_next_obs
+            assert has_next_obs, f"Should has_next_obs = True, is actually False!"
+            # episode_step = 0
+            if get_rtg:
+                rtg_traj_ = [ret - acc_ret for acc_ret in acc_ret_traj_]
+                rtg_ += rtg_traj_
+                
+                rtg_traj_ = []
+            ret = 0
+
+    if get_rtg:
+        assert len(obs_) == len(rtg_), f"Obs {len(obs_)} and Rtg {len(rtg_)} should be same length!"
+    if not get_rtg:
+        return {
+            'observations': np.array(obs_),
+            'actions': np.array(action_),
+            'next_observations': np.array(next_obs_),
+            'rewards': np.array(reward_),
+            'terminals': np.array(done_),
+        }
+    else:
+        return {
+            'observations': np.array(obs_),
+            'actions': np.array(action_),
+            'next_observations': np.array(next_obs_),
+            'rewards': np.array(reward_),
+            'terminals': np.array(done_),
+            'rtgs': np.array(rtg_)
+        }
+
 
 class SequenceDataset(torch.utils.data.Dataset):
     def __init__(self, dataset, max_len, max_ep_len=1000, device="cpu"):
@@ -173,52 +229,82 @@ class SequenceDataset(torch.utils.data.Dataset):
 
 # From https://github.com/kzl/decision-transformer/blob/master/gym/data/download_d4rl_datasets.py 
 
-def download_d4rl_datasets(data_dir: str ='./dataset/'):
+def traj_rtg_datasets(env, data_path: Optional[str] = None):
     '''
     Download all datasets needed for experiments, and re-combine them as trajectory datasets
 
     Args:
         data_dir: path to store dataset file
+
+    Return:
+        dataset: Dict,
+        initial_obss: np.ndarray
+        max_return: float
     '''
-    datasets = []
-    os.makedirs(data_dir, exist_ok=True)
+    dataset = env.get_dataset()
 
-    for env_name in ['halfcheetah', 'hopper', 'walker2d']:
-        for dataset_type in ['medium', 'medium-replay', 'expert', 'medium-expert']:
-            name = f'{env_name}-{dataset_type}-v2'
-            env = gym.make(name)
-            dataset = env.get_dataset()
+    N = dataset['rewards'].shape[0] # number of data (s,a,r)
+    data_ = collections.defaultdict(list)
 
-            N = dataset['rewards'].shape[0] # number of data (s,a,r)
-            data_ = collections.defaultdict(list)
+    use_timeouts = False
+    if 'timeouts' in dataset:
+        use_timeouts = True
 
-            use_timeouts = False
-            if 'timeouts' in dataset:
-                use_timeouts = True
+    episode_step = 0
+    paths = []
+    obs_ = []
+    next_obs_ = []
+    action_ = []
+    reward_ = []
+    done_ = []
+    rtg_ = []
 
+    for i in range(N): # Loop through data points
+
+        done_bool = bool(dataset['terminals'][i])
+        if use_timeouts:
+            final_timestep = dataset['timeouts'][i]
+        else:
+            final_timestep = (episode_step == 1000-1)
+        for k in ['observations', 'next_observations', 'actions', 'rewards', 'terminals']:
+            data_[k].append(dataset[k][i])
+            
+        obs_.append(dataset['observations'][i].astype(np.float32))
+        next_obs_.append(dataset['next_observations'][i].astype(np.float32))
+        action_.append(dataset['actions'][i].astype(np.float32))
+        reward_.append(dataset['rewards'][i].astype(np.float32))
+        done_.append(bool(dataset['terminals'][i]))
+
+        if done_bool or final_timestep:
             episode_step = 0
-            paths = []
-            for i in range(N): # Loop through data points
-                done_bool = bool(dataset['terminals'][i])
-                if use_timeouts:
-                    final_timestep = dataset['timeouts'][i]
-                else:
-                    final_timestep = (episode_step == 1000-1)
-                for k in ['observations', 'next_observations', 'actions', 'rewards', 'terminals']:
-                    data_[k].append(dataset[k][i])
-                if done_bool or final_timestep:
-                    episode_step = 0
-                    episode_data = {}
-                    for k in data_:
-                        episode_data[k] = np.array(data_[k])
-                    paths.append(episode_data)
-                    data_ = collections.defaultdict(list)
-                episode_step += 1
+            episode_data = {}
+            for k in data_:
+                episode_data[k] = np.array(data_[k])
+            # Update rtg
+            rtg_traj = list(discount_cumsum(np.array(data_['rewards'])))
+            episode_data['rtgs'] = rtg_traj
+            rtg_ += rtg_traj
 
-            returns = np.array([np.sum(p['rewards']) for p in paths])
-            num_samples = np.sum([p['rewards'].shape[0] for p in paths])
-            print(f'Number of samples collected: {num_samples}')
-            print(f'Trajectory returns: mean = {np.mean(returns)}, std = {np.std(returns)}, max = {np.max(returns)}, min = {np.min(returns)}')
+            paths.append(episode_data)
+            data_ = collections.defaultdict(list)
+        episode_step += 1
 
-            with open(os.path.join(data_dir, f'{name}.pkl'), 'wb') as f:
-                pickle.dump(paths, f)
+    init_obss = np.array([p['observations'][0] for p in paths]).astype(np.float32)
+
+    returns = np.array([np.sum(p['rewards']) for p in paths])
+    num_samples = np.sum([p['rewards'].shape[0] for p in paths])
+    print(f'Number of samples collected: {num_samples}')
+    print(f'Trajectory returns: mean = {np.mean(returns)}, std = {np.std(returns)}, max = {np.max(returns)}, min = {np.min(returns)}')
+
+    if data_path is not None:
+        with open(data_path, 'wb') as f:
+            pickle.dump(paths, f)
+
+    return {
+        'observations': np.array(obs_),
+        'actions': np.array(action_),
+        'next_observations': np.array(next_obs_),
+        'rewards': np.array(reward_),
+        'terminals': np.array(done_),
+        'rtgs': np.array(rtg_)
+    }, init_obss, np.max(returns)

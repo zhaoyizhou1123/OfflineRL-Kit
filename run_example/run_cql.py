@@ -60,6 +60,7 @@ def train(args=get_args()):
     # create env and dataset
     env = gym.make(args.task)
     dataset = qlearning_dataset(env)
+    # print("Get Q learning dataset")
     # See https://github.com/aviralkumar2907/CQL/blob/master/d4rl/examples/cql_antmaze_new.py#L22
     if 'antmaze' in args.task:
         dataset.rewards = (dataset.rewards - 0.5) * 4.0

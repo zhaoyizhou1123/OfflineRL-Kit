@@ -11,6 +11,7 @@ import torch
 import wandb
 import wandb.data_types
 from matplotlib import pyplot as plt
+import datetime
 
 
 try:
@@ -35,14 +36,15 @@ def setup_logger(config):
     #     job_type=config.algo,
     #     config=config,
     # )
+    timestamp = datetime.datetime.now().strftime("%y-%m%d-%H%M%S")
     logdir = os.path.join(
-        "logs/diffusion",
-        config.algo,
+        "logs",
         config.env_id,
+        config.algo,
         config.expr_name,
-        config.seed,
+        f"seed_{config.seed}&timestamp_{timestamp}"
     )
-    logger = configure_logger(logdir, ["stdout","tensorboard"])
+    logger = configure_logger(logdir, ["stdout","log"])
     return logger
 
 

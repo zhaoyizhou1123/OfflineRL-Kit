@@ -143,16 +143,22 @@ class DiffusionBC:
         # Weights of the EMA model is used for inference
         self.ema_noise_pred_net = self.ema.averaged_model
 
-    def sample_init_noise(self):
-        return torch.randn((1, 1, self.c.act_dim), device=self.device)
+    def sample_init_noise(self, batch: int=1):
+        return torch.randn((batch, 1, self.c.act_dim), device=self.device)
 
     def select_action(self, obs, init_noise=None):
         '''
-        obs: np.array
+        obs: np.array (obs_dim) or (B, obs_dim)
+        init_noise: (B,1,self.c.act_dim), according to sample_init_noise()
+
+        Return:
+            action: np.array (act_dim) or (B, act_dim), according to obs shape
         '''
+        has_batch = (obs.ndim == 2) # whether there is batch
+
         # (B, obs_horizon * obs_dim)
         obs_cond = torch.from_numpy(obs).to(self.device, dtype=torch.float32)
-        obs_cond = obs_cond.unsqueeze(0)
+        obs_cond = obs_cond.reshape(-1, obs_cond.shape[-1]) # (B,obs_dim)
 
         # Initialize action
         if init_noise is not None:
@@ -174,7 +180,10 @@ class DiffusionBC:
                 model_output=noise_pred, timestep=k, sample=act_pred
             ).prev_sample
 
-        return act_pred.detach().cpu().numpy()[0, 0]
+        if not has_batch:
+            return act_pred.detach().cpu().numpy()[0, 0]
+        else:
+            return act_pred.detach().cpu().numpy()[:,0,:]
 
     def save_checkpoint(self, epoch: Optional[int]):
         '''
@@ -206,10 +215,13 @@ class DiffusionBC:
         Return: If True, load succeed, else load failed
         '''
         # Load checkpoint
-        if final:
-            ckpt_path = os.path.join(self.logger.dir, "models.pt")
+        if self.c.path is None:
+            return False
+        
+        if final: # Load from config diffusion path
+            ckpt_path = os.path.join(self.c.path, "models.pt")
         else:
-            ckpt_path = os.path.join(self.logger.dir, "checkpoint.pt")
+            ckpt_path = os.path.join(self.c.path, "checkpoint.pt")
         if os.path.exists(ckpt_path):
             checkpoint = torch.load(ckpt_path, map_location=self.device)
             self.start_epoch = checkpoint['epoch'] + 1 # Start from the next epoch

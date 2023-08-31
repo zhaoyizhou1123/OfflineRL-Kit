@@ -20,7 +20,7 @@ ERROR = 40
 BACKUP = 60
 
 DEFAULT_X_NAME = "timestep"
-ROOT_DIR = "logs/dynamics"
+ROOT_DIR = "logs"
 
 
 class KVWriter(object):
@@ -348,14 +348,15 @@ def make_log_dirs(
     algo_name: str,
     seed: int,
     args: Dict,
+    part: str = 'dynamics',
     record_params: Optional[List]=None
 ) -> str:
     if record_params is not None:
         for param_name in record_params:
             algo_name += f"&{param_name}={args[param_name]}"
     timestamp = datetime.datetime.now().strftime("%y-%m%d-%H%M%S")
-    exp_name = f"seed_{seed}&timestamp_{timestamp}"
-    log_dirs = os.path.join(ROOT_DIR, task_name, algo_name, exp_name)
+    exp_name = f"timestamp_{timestamp}&{seed}"
+    log_dirs = os.path.join(ROOT_DIR, task_name, algo_name, part, exp_name)
     os.makedirs(log_dirs)
     return log_dirs
 
