@@ -57,7 +57,7 @@ def get_args():
     parser = argparse.ArgumentParser()
     # general
     parser.add_argument("--algo-name", type=str, default="rcsl")
-    parser.add_argument("--task", type=str, default="halfcheetah-medium-expert-v2", help="maze") # Self-constructed environment
+    parser.add_argument("--task", type=str, default="hopper-medium-expert-v2", help="maze") # Self-constructed environment
     parser.add_argument('--debug',action='store_true', help='Print debuuging info if true')
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--num_workers", type=int, default=1, help="Dataloader workers, align with cpu number")
@@ -128,6 +128,7 @@ def get_args():
     parser.add_argument("--rcsl-epoch", type=int, default=50)
     parser.add_argument("--rcsl-step-per-epoch", type=int, default=1000)
     parser.add_argument("--eval_episodes", type=int, default=10)
+    parser.add_argument("--fix_eval_seed", action="store_true", help="True to fix the seed for every eval")
 
     parser.add_argument("--batch-size", type=int, default=256)
 
@@ -171,6 +172,7 @@ def train(args=get_args()):
     else:
         render_mode = 'human' if args.render else None
         env = gym.make(args.task, render_mode = render_mode)
+        env2 = gym.make(args.task, render_mode = render_mode)
         # dataset = qlearning_dataset(env, get_rtg=True)
         dataset, init_obss_dataset, max_offline_return = traj_rtg_datasets(env)
         obs_space = env.observation_space
@@ -186,6 +188,7 @@ def train(args=get_args()):
     torch.cuda.manual_seed_all(args.seed)
     torch.backends.cudnn.deterministic = True
     env.reset(seed = args.seed)
+    env2.reset(seed = args.seed)
 
     rcsl_backbone = MLP(input_dim=obs_dim+1, hidden_dims=args.rcsl_hidden_dims, output_dim=args.action_dim)
 
@@ -231,6 +234,7 @@ def train(args=get_args()):
     policy_trainer = RcslPolicyTrainer(
         policy = rcsl_policy,
         eval_env = env,
+        eval_env2 = env2,
         offline_dataset = dataset,
         rollout_dataset = None,
         goal = max_offline_return,

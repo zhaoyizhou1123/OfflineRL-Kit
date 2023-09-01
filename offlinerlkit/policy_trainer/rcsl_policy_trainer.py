@@ -29,6 +29,7 @@ class RcslPolicyTrainer:
         logger: Logger,
         seed,
         # rollout_setting: Tuple[int, int, int],
+        eval_env2: Optional[Union[gym.Env, gymnasium.Env]] = None,
         epoch: int = 1000,
         step_per_epoch: int = 1000,
         batch_size: int = 256,
@@ -45,6 +46,7 @@ class RcslPolicyTrainer:
         '''
         self.policy = policy
         self.eval_env = eval_env
+        self.eval_env2 = eval_env2
         self.horizon = horizon
         self.offline_dataset = offline_dataset
         self.rollout_dataset = rollout_dataset
@@ -151,6 +153,24 @@ class RcslPolicyTrainer:
                 self.logger.logkv("eval/normalized_episode_reward_std", norm_ep_rew_std)
             self.logger.logkv("eval/episode_length", ep_length_mean)
             self.logger.logkv("eval/episode_length_std", ep_length_std)
+
+            if self.eval_env2 is not None:
+                eval_info_no_fix = self._evaluate_no_fix_seed()
+                ep_reward_mean_no_fix, ep_reward_std_no_fix = np.mean(eval_info_no_fix["eval/episode_reward"]), np.std(eval_info_no_fix["eval/episode_reward"])
+                ep_length_mean_no_fix, ep_length_std_no_fix = np.mean(eval_info_no_fix["eval/episode_length"]), np.std(eval_info_no_fix["eval/episode_length"])
+                if self.is_gymnasium_env: # gymnasium_env does not have normalized score
+                    last_10_performance.append(ep_reward_mean)
+                    self.logger.logkv("eval/episode_reward_no_fix_seed", ep_reward_mean_no_fix)
+                    self.logger.logkv("eval/episode_reward_std_no_fix_seed", ep_reward_std_no_fix)         
+                else:       
+                    norm_ep_rew_mean_no_fix = self.eval_env.get_normalized_score(ep_reward_mean_no_fix) * 100
+                    norm_ep_rew_std_no_fix = self.eval_env.get_normalized_score(ep_reward_std_no_fix) * 100
+                    last_10_performance.append(norm_ep_rew_mean)
+                    self.logger.logkv("eval/normalized_episode_reward_no_fix_seed", norm_ep_rew_mean_no_fix)
+                    self.logger.logkv("eval/normalized_episode_reward_std_no_fix_seed", norm_ep_rew_std_no_fix)
+                self.logger.logkv("eval/episode_length_no_fix_seed", ep_length_mean_no_fix)
+                self.logger.logkv("eval/episode_length_std_no_fix_seed", ep_length_std_no_fix)
+
             self.logger.set_timestep(num_timesteps)
             self.logger.dumpkvs(exclude=["dynamics_training_progress"])
         
@@ -242,6 +262,95 @@ class RcslPolicyTrainer:
                         obs = self.eval_env.get_true_observation(obs)
                     else:
                         obs = self.eval_env.reset()
+                    rtg = torch.tensor([[self.goal]]).type(torch.float32)
+        
+        return {
+            "eval/episode_reward": [ep_info["episode_reward"] for ep_info in eval_ep_info_buffer],
+            "eval/episode_length": [ep_info["episode_length"] for ep_info in eval_ep_info_buffer]
+        }
+    
+    def _evaluate_no_fix_seed(self) -> Dict[str, List[float]]:
+        '''
+        Use self.eval_env2, which does not fix seed in every epoch
+        '''
+        # Pointmaze obs has different format, needs to be treated differently
+        is_gymnasium_env = self.is_gymnasium_env
+
+        assert self.eval_env2 is not None
+        eval_env = self.eval_env2
+        
+        self.policy.eval()
+        if is_gymnasium_env:
+            obs, _ = eval_env.reset()
+            obs = eval_env.get_true_observation(obs)
+        else:
+            obs = eval_env.reset()
+            
+
+        eval_ep_info_buffer = []
+        num_episodes = 0
+        episode_reward, episode_length = 0, 0
+
+        if is_gymnasium_env: # pointmaze environment, don't use horizon
+            while num_episodes < self._eval_episodes:
+                rtg = torch.tensor([[self.goal]]).type(torch.float32)
+                for timestep in range(self.horizon): # One epoch
+                    # print(f"Timestep {timestep}, obs {obs}")
+                    action = self.policy.select_action(obs.reshape(1, -1), rtg)
+                    if hasattr(eval_env, "get_true_observation"): # gymnasium env 
+                        next_obs, reward, terminal, _, _ = eval_env.step(action.flatten())
+                    else:
+                        next_obs, reward, terminal, _ = eval_env.step(action.flatten())
+                    if is_gymnasium_env:
+                        next_obs = eval_env.get_true_observation(next_obs)
+                    if num_episodes == 2 and timestep < 10:
+                        print(f"Action {action}, next_obs {next_obs}, reward {reward}, rtg {rtg.item()}")
+                    episode_reward += reward
+                    rtg = rtg - reward
+                    episode_length += 1
+
+                    obs = next_obs
+
+                    # if terminal:
+                    #     break # Stop current epoch
+                eval_ep_info_buffer.append(
+                    {"episode_reward": episode_reward, "episode_length": episode_length}
+                )
+                num_episodes +=1
+                episode_reward, episode_length = 0, 0
+                if is_gymnasium_env:
+                    obs, _ = eval_env.reset()
+                    obs = eval_env.get_true_observation(obs)
+                else:
+                    obs = eval_env.reset()
+        else:
+            rtg = torch.tensor([[self.goal]]).type(torch.float32)
+            while num_episodes < self._eval_episodes:
+                # print(f"Timestep {timestep}, obs {obs}")
+                action = self.policy.select_action(obs.reshape(1, -1), rtg)
+                if hasattr(eval_env, "get_true_observation"): # gymnasium env 
+                    next_obs, reward, terminal, _, _ = eval_env.step(action.flatten())
+                else:
+                    next_obs, reward, terminal, _ = eval_env.step(action.flatten())
+                if is_gymnasium_env:
+                    next_obs = eval_env.get_true_observation(next_obs)
+                episode_reward += reward
+                rtg = rtg - reward
+                episode_length += 1
+
+                obs = next_obs
+
+                if terminal: # Episode finishes
+                    eval_ep_info_buffer.append(
+                        {"episode_reward": episode_reward, "episode_length": episode_length}
+                    )
+                    num_episodes +=1
+                    episode_reward, episode_length = 0, 0
+                    if is_gymnasium_env:
+                        obs, _ = eval_env.reset()
+                        obs = eval_env.get_true_observation(obs)
+                    else:
+                        obs = eval_env.reset()
                     rtg = torch.tensor([[self.goal]]).type(torch.float32)
         
         return {
