@@ -21,10 +21,10 @@ algo=rcsl
 horizon=1000
 num_workers=1
 epoch=1000
-arch="1024 1024"
+arch="200 200 200 200"
 batch=1024
 
-task="hopper-medium-expert-v2"
+task="hopper-medium-v2"
 for seed in 0 1 2 3
 do
     CUDA_VISIBLE_DEVICES=0 python run_example/run_${algo}.py \
@@ -40,10 +40,10 @@ do
 done
 
 
-task="walker2d-medium-expert-v2" 
+task="walker2d-medium-v2" 
 for seed in 0 1 2 3
 do
-    CUDA_VISIBLE_DEVICES=0 python run_example/run_${algo}.py \
+    CUDA_VISIBLE_DEVICES=1 python run_example/run_${algo}.py \
         --task ${task} \
         --algo-name ${algo} \
         --seed ${seed} \
@@ -55,10 +55,10 @@ do
     sleep 40
 done
 
-task="halfcheetah-medium-expert-v2"
+task="halfcheetah-medium-v2"
 for seed in 0 1 2 3
 do
-    CUDA_VISIBLE_DEVICES=0 python run_example/run_${algo}.py \
+    CUDA_VISIBLE_DEVICES=2 python run_example/run_${algo}.py \
         --task ${task} \
         --algo-name ${algo} \
         --seed ${seed} \

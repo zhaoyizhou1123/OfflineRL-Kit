@@ -347,7 +347,10 @@ def train(args=get_args()):
                     achieved_rets_.append(deepcopy(pred_ret))
 
                     # support_actions, support_probs = behavior_model(pred_state.unsqueeze(0).to(device)) # (1, n_support, action_dim), (1,n_support)
-                    action = diffusion_policy.select_action(pred_state, frozen_noise)
+                    if use_pred:
+                        action = diffusion_policy.select_action(pred_state, frozen_noise)
+                    else:
+                        action = diffusion_policy.select_action(true_state[None, :], frozen_noise)
                     # sample_idx = torch.multinomial(support_probs, num_samples=1).squeeze() # scalar
                     # action = support_actions[0,sample_idx,:] # (action_dim)
                     # action = sample_from_supports(support_actions.squeeze(0), support_probs.squeeze(0)).detach().cpu().numpy()
