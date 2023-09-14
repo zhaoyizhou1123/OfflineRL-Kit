@@ -229,7 +229,7 @@ class SequenceDataset(torch.utils.data.Dataset):
 
 # From https://github.com/kzl/decision-transformer/blob/master/gym/data/download_d4rl_datasets.py 
 
-def traj_rtg_datasets(env, data_path: Optional[str] = None):
+def traj_rtg_datasets(env, input_path: Optional[str] =None, data_path: Optional[str] = None):
     '''
     Download all datasets needed for experiments, and re-combine them as trajectory datasets
     Throw away the last uncompleted trajectory
@@ -242,7 +242,7 @@ def traj_rtg_datasets(env, data_path: Optional[str] = None):
         initial_obss: np.ndarray
         max_return: float
     '''
-    dataset = env.get_dataset()
+    dataset = env.get_dataset(h5path=input_path)
 
     N = dataset['rewards'].shape[0] # number of data (s,a,r)
     data_ = collections.defaultdict(list)
@@ -311,3 +311,87 @@ def traj_rtg_datasets(env, data_path: Optional[str] = None):
         full_dataset[k] = np.concatenate([p[k] for p in paths], axis=0)
 
     return full_dataset, init_obss, np.max(returns)
+
+# def traj_rtg_custom_datasets(env, input_path: str, data_path: Optional[str] = None):
+#     '''
+#     Download all datasets needed for experiments, and re-combine them as trajectory datasets
+#     Throw away the last uncompleted trajectory
+
+#     Args:
+#         data_dir: path to store dataset file
+#         input_path: path to input dataset file
+
+#     Return:
+#         dataset: Dict,
+#         initial_obss: np.ndarray
+#         max_return: float
+#     '''
+#     dataset = env.get_dataset(h5path=input_path)
+
+#     N = dataset['rewards'].shape[0] # number of data (s,a,r)
+#     data_ = collections.defaultdict(list)
+
+#     use_timeouts = False
+#     if 'timeouts' in dataset:
+#         use_timeouts = True
+
+#     episode_step = 0
+#     paths = []
+#     # obs_ = []
+#     # next_obs_ = []
+#     # action_ = []
+#     # reward_ = []
+#     # done_ = []
+#     # rtg_ = []
+
+#     for i in range(N): # Loop through data points
+
+#         done_bool = bool(dataset['terminals'][i])
+#         if use_timeouts:
+#             final_timestep = dataset['timeouts'][i]
+#         else:
+#             final_timestep = (episode_step == 1000-1)
+#         for k in ['observations', 'next_observations', 'actions', 'rewards', 'terminals']:
+#             data_[k].append(dataset[k][i])
+            
+#         # obs_.append(dataset['observations'][i].astype(np.float32))
+#         # next_obs_.append(dataset['next_observations'][i].astype(np.float32))
+#         # action_.append(dataset['actions'][i].astype(np.float32))
+#         # reward_.append(dataset['rewards'][i].astype(np.float32))
+#         # done_.append(bool(dataset['terminals'][i]))
+
+#         if done_bool or final_timestep:
+#             episode_step = 0
+#             episode_data = {}
+#             for k in data_:
+#                 episode_data[k] = np.array(data_[k])
+#             # Update rtg
+#             rtg_traj = discount_cumsum(np.array(data_['rewards']))
+#             episode_data['rtgs'] = rtg_traj
+#             # rtg_ += rtg_traj
+
+#             paths.append(episode_data)
+#             data_ = collections.defaultdict(list)
+
+#         episode_step += 1
+
+#     init_obss = np.array([p['observations'][0] for p in paths]).astype(np.float32)
+
+#     returns = np.array([np.sum(p['rewards']) for p in paths])
+#     num_samples = np.sum([p['rewards'].shape[0] for p in paths])
+#     print(f'Number of samples collected: {num_samples}')
+#     print(f'Trajectory returns: mean = {np.mean(returns)}, std = {np.std(returns)}, max = {np.max(returns)}, min = {np.min(returns)}')
+
+#     if data_path is not None:
+#         with open(data_path, 'wb') as f:
+#             pickle.dump(paths, f)
+
+#     # print(f"N={N},len(obs_)={len(obs_)},len(reward_)={len(reward_)},len(rtg_)={len(rtg_)}!")
+#     # assert len(obs_) == len(rtg_), f"Got {len(obs_)} obss, but {len(rtg_)} rtgs!"
+
+#     # Concatenate paths into one dataset
+#     full_dataset = {}
+#     for k in ['observations', 'next_observations', 'actions', 'rewards', 'rtgs', 'terminals']:
+#         full_dataset[k] = np.concatenate([p[k] for p in paths], axis=0)
+
+#     return full_dataset, init_obss, np.max(returns)

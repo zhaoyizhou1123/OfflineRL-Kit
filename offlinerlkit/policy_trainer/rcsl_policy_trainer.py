@@ -139,18 +139,23 @@ class RcslPolicyTrainer:
             # evaluate current policy
             eval_info = self._evaluate()
             ep_reward_mean, ep_reward_std = np.mean(eval_info["eval/episode_reward"]), np.std(eval_info["eval/episode_reward"])
+            ep_reward_max, ep_reward_min = np.max(eval_info["eval/episode_reward"]), np.min(eval_info["eval/episode_reward"])
             ep_length_mean, ep_length_std = np.mean(eval_info["eval/episode_length"]), np.std(eval_info["eval/episode_length"])
 
-            if self.is_gymnasium_env: # gymnasium_env does not have normalized score
+            if not hasattr(self.eval_env, "get_normalized_score"): # gymnasium_env does not have normalized score
                 last_10_performance.append(ep_reward_mean)
                 self.logger.logkv("eval/episode_reward", ep_reward_mean)
                 self.logger.logkv("eval/episode_reward_std", ep_reward_std)         
             else:       
                 norm_ep_rew_mean = self.eval_env.get_normalized_score(ep_reward_mean) * 100
                 norm_ep_rew_std = self.eval_env.get_normalized_score(ep_reward_std) * 100
+                norm_ep_rew_max = self.eval_env.get_normalized_score(ep_reward_max) * 100
+                norm_ep_rew_min = self.eval_env.get_normalized_score(ep_reward_min) * 100
                 last_10_performance.append(norm_ep_rew_mean)
                 self.logger.logkv("eval/normalized_episode_reward", norm_ep_rew_mean)
                 self.logger.logkv("eval/normalized_episode_reward_std", norm_ep_rew_std)
+                self.logger.logkv("eval/normalized_episode_reward_max", norm_ep_rew_max)
+                self.logger.logkv("eval/normalized_episode_reward_min", norm_ep_rew_min)
             self.logger.logkv("eval/episode_length", ep_length_mean)
             self.logger.logkv("eval/episode_length_std", ep_length_std)
 
@@ -158,7 +163,7 @@ class RcslPolicyTrainer:
                 eval_info_no_fix = self._evaluate_no_fix_seed()
                 ep_reward_mean_no_fix, ep_reward_std_no_fix = np.mean(eval_info_no_fix["eval/episode_reward"]), np.std(eval_info_no_fix["eval/episode_reward"])
                 ep_length_mean_no_fix, ep_length_std_no_fix = np.mean(eval_info_no_fix["eval/episode_length"]), np.std(eval_info_no_fix["eval/episode_length"])
-                if self.is_gymnasium_env: # gymnasium_env does not have normalized score
+                if not hasattr(self.eval_env, "get_normalized_score"): # gymnasium_env does not have normalized score
                     last_10_performance.append(ep_reward_mean)
                     self.logger.logkv("eval/episode_reward_no_fix_seed", ep_reward_mean_no_fix)
                     self.logger.logkv("eval/episode_reward_std_no_fix_seed", ep_reward_std_no_fix)         
@@ -179,7 +184,8 @@ class RcslPolicyTrainer:
 
         self.logger.log("total time: {:.2f}s".format(time.time() - start_time))
         torch.save(self.policy.state_dict(), os.path.join(self.logger.model_dir, "policy.pth"))
-        self.policy.dynamics.save(self.logger.model_dir)
+
+        # self.policy.dynamics.save(self.logger.model_dir)
         self.logger.close()
     
         return {"last_10_performance": np.mean(last_10_performance)}

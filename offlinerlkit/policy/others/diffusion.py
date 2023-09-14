@@ -41,8 +41,8 @@ class DiffusionBC:
         self.noise_pred_net = ConditionalUnet1D(
             input_dim=self.c.act_dim,
             global_cond_dim=self.c.obs_dim,
-            kernel_size=1,
-            n_groups=1,
+            # kernel_size=1,
+            # n_groups=1,
         ).to(self.device)
 
         if self.c.spectral_norm:
@@ -130,11 +130,11 @@ class DiffusionBC:
                 self.ema.step(self.noise_pred_net)
 
                 # Logging
-                self.logger.record("train/loss", loss.item())
+                self.logger.record_mean("train/loss", loss.item())
 
             # Dump logger
-            self.logger.record("train/epoch", epoch)
-            self.logger.dump()
+            self.logger.record("train/epoch", epoch, exclude=['tensorboard'])
+            self.logger.dump(step = epoch)
 
             if (epoch + 1) % self.c.save_ckpt_freq == 0:
                 print(f"Saving checkpoint of epoch {epoch}")

@@ -17,20 +17,15 @@ from typing import Dict, Tuple
 
 # import __init__
 from offlinerlkit.nets import MLP
-from offlinerlkit.modules import ActorProb, Critic, TanhDiagGaussian, EnsembleDynamicsModel, RcslModule
-from offlinerlkit.dynamics import BaseDynamics, EnsembleDynamics
-from offlinerlkit.utils.scaler import StandardScaler
-from offlinerlkit.utils.termination_fns import get_termination_fn
-from offlinerlkit.utils.load_dataset import qlearning_dataset, traj_rtg_datasets
-from offlinerlkit.utils.config import Config
-from offlinerlkit.utils.dataset import ObsActDataset
+from offlinerlkit.modules import RcslGaussianModule, DiagGaussian
+from offlinerlkit.utils.load_dataset import traj_rtg_datasets
 from offlinerlkit.buffer import ReplayBuffer
 from offlinerlkit.utils.logger import Logger, make_log_dirs
 from offlinerlkit.utils.diffusion_logger import setup_logger
 from offlinerlkit.policy_trainer import RcslPolicyTrainer
 from offlinerlkit.utils.trajectory import Trajectory
 from offlinerlkit.utils.none_or_str import none_or_str
-from offlinerlkit.policy import DiffusionBC, RcslPolicy
+from offlinerlkit.policy import DiffusionBC, RcslGaussianPolicy
 
 # from rvs.policies import RvS
 
@@ -56,8 +51,9 @@ walker2d-medium-expert-v2: rollout-length=1, cql-weight=5.0
 def get_args():
     parser = argparse.ArgumentParser()
     # general
-    parser.add_argument("--algo-name", type=str, default="rcsl")
+    parser.add_argument("--algo-name", type=str, default="rcsl_gauss")
     parser.add_argument("--task", type=str, default="hopper-medium-expert-v2", help="maze") # Self-constructed environment
+    parser.add_argument("--dataset", type=none_or_str, default=None, help="../D4RL/dataset/halfcheetah/output.hdf5") # Self-constructed environment
     parser.add_argument('--debug',action='store_true', help='Print debuuging info if true')
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--num_workers", type=int, default=1, help="Dataloader workers, align with cpu number")
@@ -122,7 +118,7 @@ def get_args():
     parser.add_argument("--rollout-batch", type=int, default=256, help="Number of trajs to be sampled at one time")
 
     # RCSL policy (mlp)
-    parser.add_argument("--rcsl-hidden-dims", type=int, nargs='*', default=[200, 200, 200, 200])
+    parser.add_argument("--rcsl-hidden-dims", type=int, nargs='*', default=[1024, 1024, 1024, 1024])
     parser.add_argument("--rcsl-lr", type=float, default=1e-3)
     parser.add_argument("--rcsl-batch", type=int, default=256)
     parser.add_argument("--rcsl-epoch", type=int, default=50)
@@ -174,7 +170,7 @@ def train(args=get_args()):
         env = gym.make(args.task, render_mode = render_mode)
         env2 = gym.make(args.task, render_mode = render_mode)
         # dataset = qlearning_dataset(env, get_rtg=True)
-        dataset, init_obss_dataset, max_offline_return = traj_rtg_datasets(env)
+        dataset, init_obss_dataset, max_offline_return = traj_rtg_datasets(env, input_path = args.dataset)
         obs_space = env.observation_space
         args.obs_shape = env.observation_space.shape
     obs_dim = np.prod(args.obs_shape)
@@ -191,13 +187,19 @@ def train(args=get_args()):
     env2.reset(seed = args.seed)
 
     rcsl_backbone = MLP(input_dim=obs_dim+1, hidden_dims=args.rcsl_hidden_dims, output_dim=args.action_dim)
+    dist = DiagGaussian(
+        latent_dim=getattr(rcsl_backbone, "output_dim"),
+        output_dim=args.action_dim,
+        unbounded=True,
+        conditioned_sigma=True
+    )
 
-    rcsl_module = RcslModule(rcsl_backbone, args.device)
+    rcsl_module = RcslGaussianModule(rcsl_backbone, dist, args.device)
     rcsl_optim = torch.optim.Adam(rcsl_module.parameters(), lr=args.rcsl_lr)
 
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(rcsl_optim, args.rcsl_epoch)
 
-    rcsl_policy = RcslPolicy(
+    rcsl_policy = RcslGaussianPolicy(
         dynamics = None,
         rollout_policy = None,
         rcsl = rcsl_module,
@@ -220,7 +222,8 @@ def train(args=get_args()):
     # train
 
     # Creat policy trainer
-    rcsl_log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part='rcsl')
+    task_name = f"{args.task}-mod" if args.dataset is not None else args.task
+    rcsl_log_dirs = make_log_dirs(task_name, args.algo_name, args.seed, vars(args), part='rcsl')
     # key: output file name, value: output handler type
     rcsl_output_config = {
         "consoleout_backup": "stdout",

@@ -1,4 +1,3 @@
-import __init__
 import argparse
 import os
 import sys
@@ -31,6 +30,7 @@ from offlinerlkit.policy_trainer import RcslPolicyTrainer
 from offlinerlkit.utils.trajectory import Trajectory
 from offlinerlkit.utils.none_or_str import none_or_str
 from offlinerlkit.policy import DiffusionBC, RcslPolicy
+from offlinerlkit.env.linearq import Linearq
 
 # from rvs.policies import RvS
 
@@ -57,11 +57,14 @@ def get_args():
     parser = argparse.ArgumentParser()
     # general
     parser.add_argument("--algo-name", type=str, default="rcsl")
-    parser.add_argument("--task", type=str, default="hopper-medium-expert-v2", help="maze") # Self-constructed environment
+    parser.add_argument("--task", type=str, default="linearq", help="maze") # Self-constructed environment
     parser.add_argument('--debug',action='store_true', help='Print debuuging info if true')
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--num_workers", type=int, default=1, help="Dataloader workers, align with cpu number")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+
+    # env config (linearq)
+    parser.add_argument("--env_param", type = int, default = 100)
 
     # env config (maze)
     parser.add_argument('--maze_config_file', type=str, default='./pointmaze/config/maze2_simple_moredata.json')
@@ -122,7 +125,7 @@ def get_args():
     parser.add_argument("--rollout-batch", type=int, default=256, help="Number of trajs to be sampled at one time")
 
     # RCSL policy (mlp)
-    parser.add_argument("--rcsl-hidden-dims", type=int, nargs='*', default=[200, 200, 200, 200])
+    parser.add_argument("--rcsl-hidden-dims", type=int, nargs='*', default=[20])
     parser.add_argument("--rcsl-lr", type=float, default=1e-3)
     parser.add_argument("--rcsl-batch", type=int, default=256)
     parser.add_argument("--rcsl-epoch", type=int, default=50)
@@ -150,36 +153,52 @@ def train(args=get_args()):
     # logger.log_hyperparameters(vars(args))
 
     # create env and dataset
-    if args.task == 'maze': # self-constructed
-        
-        from pointmaze.envs.create_maze_dataset import create_env_dataset
-        point_maze = create_env_dataset(args)
-        env = point_maze.env_cls()
-        trajs = point_maze.dataset[0] # first object is trajs
-        dataset = Trajs2Dict(trajs)
-
-        # Add a get_true_observation method for Env
-        def get_true_observation(obs):
-            '''
-            obs, obs received from pointmaze Env. Dict.
-            '''
-            return obs['observation']
-    
-        setattr(env, 'get_true_observation', get_true_observation)
-
-        obs_space = env.observation_space['observation']
-        args.obs_shape = env.observation_space['observation'].shape
-    else:
+    if args.task == 'linearq':
         render_mode = 'human' if args.render else None
-        env = gym.make(args.task, render_mode = render_mode)
-        env2 = gym.make(args.task, render_mode = render_mode)
+        env = Linearq(size_param=args.env_param)
+        env2 = Linearq(size_param=args.env_param)
         # dataset = qlearning_dataset(env, get_rtg=True)
         dataset, init_obss_dataset, max_offline_return = traj_rtg_datasets(env)
         obs_space = env.observation_space
-        args.obs_shape = env.observation_space.shape
-    obs_dim = np.prod(args.obs_shape)
-    args.action_dim = np.prod(env.action_space.shape)
-    args.max_action = env.action_space.high[0]
+        args.obs_shape = (1,)
+        print(args.obs_shape)
+    else:
+        raise NotImplementedError
+
+    
+    # elif args.task == 'maze': # self-constructed
+        
+    #     from pointmaze.envs.create_maze_dataset import create_env_dataset
+    #     point_maze = create_env_dataset(args)
+    #     env = point_maze.env_cls()
+    #     trajs = point_maze.dataset[0] # first object is trajs
+    #     dataset = Trajs2Dict(trajs)
+
+    #     # Add a get_true_observation method for Env
+    #     def get_true_observation(obs):
+    #         '''
+    #         obs, obs received from pointmaze Env. Dict.
+    #         '''
+    #         return obs['observation']
+    
+    #     setattr(env, 'get_true_observation', get_true_observation)
+
+    #     obs_space = env.observation_space['observation']
+    #     args.obs_shape = env.observation_space['observation'].shape
+    # else:
+    #     render_mode = 'human' if args.render else None
+    #     env = gym.make(args.task, render_mode = render_mode)
+    #     env2 = gym.make(args.task, render_mode = render_mode)
+    #     # dataset = qlearning_dataset(env, get_rtg=True)
+    #     dataset, init_obss_dataset, max_offline_return = traj_rtg_datasets(env)
+    #     obs_space = env.observation_space
+    #     args.obs_shape = env.observation_space.shape
+    # obs_dim = np.prod(args.obs_shape)
+    # args.action_dim = np.prod(env.action_space.shape)
+    obs_dim = int(1)
+    args.action_dim = int(1)
+    # print(obs_dim, args.action_dim)
+    # args.max_action = env.action_space.high[0]
 
     # seed
     random.seed(args.seed)
@@ -220,7 +239,7 @@ def train(args=get_args()):
     # train
 
     # Creat policy trainer
-    rcsl_log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part='rcsl')
+    rcsl_log_dirs = make_log_dirs(args.task, args.algo_name, f"{args.env_param}-{args.rcsl_hidden_dims}", vars(args))
     # key: output file name, value: output handler type
     rcsl_output_config = {
         "consoleout_backup": "stdout",

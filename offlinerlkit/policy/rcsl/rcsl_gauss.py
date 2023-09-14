@@ -8,7 +8,7 @@ import torch.nn as nn
 import gym
 
 from torch.nn import functional as F
-from typing import Dict, Union, Tuple
+from typing import Dict, Union, Tuple, Optional
 from collections import defaultdict
 from offlinerlkit.policy import BasePolicy, DiffusionBC
 from offlinerlkit.dynamics import BaseDynamics
@@ -22,8 +22,8 @@ class RcslGaussianPolicy(BasePolicy):
 
     def __init__(
         self,
-        dynamics: BaseDynamics,
-        rollout_policy: DiffusionBC,
+        dynamics: Optional[BaseDynamics],
+        rollout_policy: Optional[DiffusionBC],
         rcsl: RcslGaussianModule,
         rcsl_optim: torch.optim.Optimizer,
         device = 'cpu'
@@ -156,7 +156,8 @@ class RcslGaussianPolicy(BasePolicy):
     def select_action(self, obs: np.ndarray, rtg: np.ndarray) -> np.ndarray:
         with torch.no_grad():
             dist = self.rcsl.forward(obs, rtg)
-            action = dist.mode()
+            # action = dist.mode()
+            action = dist.rsample()
             # print(f"Dist mean, var: {dist.mean}, {dist.scale}")
         return action.cpu().numpy()
     

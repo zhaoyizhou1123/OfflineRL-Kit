@@ -44,7 +44,7 @@ def setup_logger(config):
         config.expr_name,
         f"seed_{config.seed}&timestamp_{timestamp}"
     )
-    logger = configure_logger(logdir, ["stdout","log"])
+    logger = configure_logger(logdir, ["stdout","log", "tensorboard"])
     return logger
 
 

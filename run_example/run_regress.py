@@ -30,7 +30,7 @@ from offlinerlkit.utils.diffusion_logger import setup_logger
 from offlinerlkit.policy_trainer import RcslPolicyTrainer
 from offlinerlkit.utils.trajectory import Trajectory
 from offlinerlkit.utils.none_or_str import none_or_str
-from offlinerlkit.policy import DiffusionBC, RcslPolicy
+from offlinerlkit.policy import AutoregressivePolicy
 
 # from rvs.policies import RvS
 
@@ -56,11 +56,11 @@ walker2d-medium-expert-v2: rollout-length=1, cql-weight=5.0
 def get_args():
     parser = argparse.ArgumentParser()
     # general
-    parser.add_argument("--algo-name", type=str, default="rcsl")
-    parser.add_argument("--task", type=str, default="hopper-medium-expert-v2", help="maze") # Self-constructed environment
+    parser.add_argument("--algo-name", type=str, default="rcsl_regress")
+    parser.add_argument("--task", type=str, default="halfcheetah-medium-v2", help="maze") # Self-constructed environment
     parser.add_argument('--debug',action='store_true', help='Print debuuging info if true')
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--num_workers", type=int, default=1, help="Dataloader workers, align with cpu number")
+    parser.add_argument("--num_workers", type=int, default=2, help="Dataloader workers, align with cpu number")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
 
     # env config (maze)
@@ -125,7 +125,7 @@ def get_args():
     parser.add_argument("--rcsl-hidden-dims", type=int, nargs='*', default=[200, 200, 200, 200])
     parser.add_argument("--rcsl-lr", type=float, default=1e-3)
     parser.add_argument("--rcsl-batch", type=int, default=256)
-    parser.add_argument("--rcsl-epoch", type=int, default=50)
+    parser.add_argument("--rcsl-epoch", type=int, default=200)
     parser.add_argument("--rcsl-step-per-epoch", type=int, default=1000)
     parser.add_argument("--eval_episodes", type=int, default=10)
     parser.add_argument("--fix_eval_seed", action="store_true", help="True to fix the seed for every eval")
@@ -190,20 +190,29 @@ def train(args=get_args()):
     env.reset(seed = args.seed)
     env2.reset(seed = args.seed)
 
-    rcsl_backbone = MLP(input_dim=obs_dim+1, hidden_dims=args.rcsl_hidden_dims, output_dim=args.action_dim)
+    # rcsl_backbone = MLP(input_dim=obs_dim+1, hidden_dims=args.rcsl_hidden_dims, output_dim=args.action_dim)
 
-    rcsl_module = RcslModule(rcsl_backbone, args.device)
-    rcsl_optim = torch.optim.Adam(rcsl_module.parameters(), lr=args.rcsl_lr)
+    # rcsl_module = RcslModule(rcsl_backbone, args.device)
+    # rcsl_optim = torch.optim.Adam(rcsl_module.parameters(), lr=args.rcsl_lr)
 
-    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(rcsl_optim, args.rcsl_epoch)
+    # lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(rcsl_optim, args.rcsl_epoch)
 
-    rcsl_policy = RcslPolicy(
-        dynamics = None,
-        rollout_policy = None,
-        rcsl = rcsl_module,
-        rcsl_optim = rcsl_optim,
+    # rcsl_policy = RcslPolicy(
+    #     dynamics = None,
+    #     rollout_policy = None,
+    #     rcsl = rcsl_module,
+    #     rcsl_optim = rcsl_optim,
+    #     device = args.device
+    # )
+
+    output_policy = AutoregressivePolicy(
+        obs_dim=obs_dim,
+        act_dim = args.action_dim,
+        hidden_dims=args.rcsl_hidden_dims,
+        lr = args.rcsl_lr,
         device = args.device
     )
+    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(output_policy.rcsl_optim, args.rcsl_epoch)
     
 
     # create buffer
@@ -232,7 +241,7 @@ def train(args=get_args()):
     rcsl_logger.log_hyperparameters(vars(args))
 
     policy_trainer = RcslPolicyTrainer(
-        policy = rcsl_policy,
+        policy = output_policy,
         eval_env = env,
         eval_env2 = env2,
         offline_dataset = dataset,

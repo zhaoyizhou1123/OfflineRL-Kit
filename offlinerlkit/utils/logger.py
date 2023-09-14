@@ -346,9 +346,9 @@ class Logger(object):
 def make_log_dirs(
     task_name: str,
     algo_name: str,
-    seed: int,
+    seed: Union[int,str],
     args: Dict,
-    part: str = 'dynamics',
+    part: Optional[str] = None,
     record_params: Optional[List]=None
 ) -> str:
     if record_params is not None:
@@ -356,7 +356,10 @@ def make_log_dirs(
             algo_name += f"&{param_name}={args[param_name]}"
     timestamp = datetime.datetime.now().strftime("%y-%m%d-%H%M%S")
     exp_name = f"timestamp_{timestamp}&{seed}"
-    log_dirs = os.path.join(ROOT_DIR, task_name, algo_name, part, exp_name)
+    if part is not None:
+        log_dirs = os.path.join(ROOT_DIR, task_name, algo_name, part, exp_name)
+    else:
+        log_dirs = os.path.join(ROOT_DIR, task_name, algo_name, exp_name)
     os.makedirs(log_dirs)
     return log_dirs
 

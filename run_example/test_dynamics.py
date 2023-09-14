@@ -58,6 +58,7 @@ def get_args():
     # general
     parser.add_argument("--algo-name", type=str, default="mbrcsl")
     parser.add_argument("--task", type=str, default="halfcheetah-medium-v2", help="maze") # Self-constructed environment
+    parser.add_argument("--dataset", type=none_or_str, default=None, help="../D4RL/dataset/halfcheetah/output.hdf5") # Self-constructed environment
     parser.add_argument('--debug',action='store_true', help='Print debuuging info if true')
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--num_workers", type=int, default=1, help="Dataloader workers, align with cpu number")
@@ -109,15 +110,15 @@ def get_args():
     parser.add_argument("--load-dynamics-path", type=none_or_str, default=None)
 
     # Behavior policy (diffusion)
-    parser.add_argument("--behavior_epoch", type=int, default=50)
-    parser.add_argument("--num_diffusion_iters", type=int, default=10, help="Number of diffusion steps")
+    parser.add_argument("--behavior_epoch", type=int, default=1000)
+    parser.add_argument("--num_diffusion_iters", type=int, default=50, help="Number of diffusion steps")
     parser.add_argument('--behavior_batch', type=int, default=256)
     parser.add_argument('--load_diffusion_path', type=none_or_str, default=None)
     parser.add_argument('--diffusion_seed', type=str, default='0', help="Distinguish runs for diffusion policy, not random seed")
 
     # Rollout 
     parser.add_argument('--rollout_ckpt_path', type=none_or_str, default=None, help="./checkpoint/maze2_smd_stable, file path, used to load/store rollout trajs" )
-    parser.add_argument('--rollout_epochs', type=int, default=1000, help="Max number of epochs to rollout the policy")
+    parser.add_argument('--rollout_epochs', type=int, default=10, help="Max number of epochs to rollout the policy")
     parser.add_argument('--num_need_traj', type=int, default=100, help="Needed valid trajs in rollout")
     parser.add_argument("--rollout-batch", type=int, default=256, help="Number of trajs to be sampled at one time")
 
@@ -171,7 +172,7 @@ def train(args=get_args()):
     else:
         env = gym.make(args.task)
         # dataset = qlearning_dataset(env, get_rtg=True)
-        dataset, init_obss_dataset, max_offline_return = traj_rtg_datasets(env)
+        dataset, init_obss_dataset, max_offline_return = traj_rtg_datasets(env, input_path = args.dataset)
         obs_space = env.observation_space
         args.obs_shape = env.observation_space.shape
     obs_dim = np.prod(args.obs_shape)
@@ -356,13 +357,13 @@ def train(args=get_args()):
                     # action = sample_from_supports(support_actions.squeeze(0), support_probs.squeeze(0)).detach().cpu().numpy()
                     # print(action)
                     # print(pred_state.shape, action.shape)
-                    if use_pred:
-                        pred_next_state, pred_reward, _, _ = dynamics.step(pred_state, action) # (state_dim), (1)
-                    else:
-                        pred_next_state, pred_reward, _, _ = dynamics.step(true_state[None, :], action) # (state_dim), (1)
-                    true_next_state, true_reward,_ ,_ = env.step(action.squeeze(0))
-                    pred_next_state = pred_next_state.squeeze(0) # (state_dim)
-                    pred_reward = pred_reward.squeeze() # scalar
+                    # if use_pred:
+                    #     pred_next_state, pred_reward, _, _ = dynamics.step(pred_state, action) # (state_dim), (1)
+                    # else:
+                    #     pred_next_state, pred_reward, _, _ = dynamics.step(true_state[None, :], action) # (state_dim), (1)
+                    true_next_state, true_reward, terminated ,info = env.step(action.squeeze(0))
+                    # pred_next_state = pred_next_state.squeeze(0) # (state_dim)
+                    # pred_reward = pred_reward.squeeze() # scalar
                     # print(pred_next_state.shape, pred_reward.shape)
                     # Observe next states, rewards,
                     # next_state, reward, terminated, _, _ = env.step(action) # array (state_dim), scalar
@@ -370,37 +371,39 @@ def train(args=get_args()):
                     #     next_state = env.get_true_observation(next_state)
                     # next_state = torch.from_numpy(next_state) # (state_dim)
                     actions_.append(deepcopy(action))
-                    next_observations_.append(deepcopy(pred_next_state))
-                    rewards_.append(deepcopy(pred_reward))
-                    print("-----------------------")
-                    print(f"Step {h}, action {action}")
-                    print(f"Predicted reward {pred_reward}, true reward {true_reward}")
-                    print(f"State difference {np.linalg.norm(pred_next_state - true_next_state)} \n")
-                    print("-----------------------\n")
+                    # next_observations_.append(deepcopy(pred_next_state))
+                    # rewards_.append(deepcopy(pred_reward))
+                    # print("-----------------------")
+                    # print(f"Step {h}, action {action}")
+                    print(f"True reward {true_reward}, info {info}")
+                    # print(f"State difference {np.linalg.norm(pred_next_state - true_next_state)} \n")
+                    # print("-----------------------\n")
                     # Calculate return
                     # ret += reward
-                    pred_ret += pred_reward
+                    # pred_ret += pred_reward
                     true_ret += true_reward
                     
                     # Update states, actions, rtgs, timesteps
                     # true_state = next_state # (state_dim)
-                    pred_state = pred_next_state.reshape(pred_state.shape)
+                    # pred_state = pred_next_state.reshape(pred_state.shape)
                     true_state = true_next_state.reshape(true_state.shape)
 
                     # Update timesteps
 
-                    # if terminated: # Already reached goal, the rest steps get reward 1, break
+                    if terminated: # Already reached goal, the rest steps get reward 1, break
                     #     ret += args.horizon - 1 - h
                     #     pred_ret += args.horizon - 1 -h
-                    #     break
-                print(f"Epoch {epoch}, predicted total return {pred_ret}, true total return {true_ret}")
+                        # print(f"Epoch {epoch}, true total return {true_ret}")
+                        break
+                    
+                print(f"Epoch {epoch}, true total return {true_ret}")
             
         return trajs
 
     # train
 
     # Get rollout_trajs
-    test_rollout(max_offline_return)
+    test_rollout()
 
 
 if __name__ == "__main__":

@@ -247,7 +247,7 @@ def train(args=get_args()):
     print(args)
 
     # log
-    log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args))
+    log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part='dynamics')
     # key: output file name, value: output handler type
     output_config = {
         "consoleout_backup": "stdout",
