@@ -13,6 +13,7 @@ logs
 *.dat
 *.sif
 *.sbatch
-!backup/*.out
+# !backup/*.out
+backup/
 test.py
 dataset/
