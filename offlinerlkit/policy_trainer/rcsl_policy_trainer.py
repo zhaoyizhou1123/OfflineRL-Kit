@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 
 from offlinerlkit.buffer import ReplayBuffer
 from offlinerlkit.utils.logger import Logger
-from offlinerlkit.policy import BasePolicy, RcslPolicy, RcslGaussianPolicy
+from offlinerlkit.policy import BasePolicy, RcslPolicy, RcslGaussianPolicy, SimpleDiffusionPolicy
 from offlinerlkit.utils.dataset import DictDataset
 
 
@@ -21,10 +21,10 @@ from offlinerlkit.utils.dataset import DictDataset
 class RcslPolicyTrainer:
     def __init__(
         self,
-        policy: Union[RcslPolicy, RcslGaussianPolicy],
+        policy: Union[RcslPolicy, RcslGaussianPolicy, SimpleDiffusionPolicy],
         eval_env: Union[gym.Env, gymnasium.Env],
         offline_dataset: Dict[str, np.ndarray],
-        rollout_dataset: Dict[str, np.ndarray],
+        rollout_dataset: Optional[Dict[str, np.ndarray]],
         goal: float,
         logger: Logger,
         seed,
@@ -39,6 +39,7 @@ class RcslPolicyTrainer:
         # dynamics_update_freq: int = 0,
         horizon: Optional[int] = None,
         num_workers = 1,
+        has_terminal = False
         # device = 'cpu'
     ) -> None:
         '''
@@ -69,6 +70,7 @@ class RcslPolicyTrainer:
 
         self.is_gymnasium_env = hasattr(self.eval_env, "get_true_observation")
         assert (not self.is_gymnasium_env) or (self.horizon is not None), "Horizon must be specified for Gymnasium env"
+        self.has_terminal = has_terminal
 
     def train(self) -> Dict[str, float]:
         start_time = time.time()
@@ -97,6 +99,7 @@ class RcslPolicyTrainer:
             raise NotImplementedError       
 
         # train loop
+        # self._evaluate()
         for e in range(1, self._epoch + 1):
 
             self.policy.train()
@@ -208,7 +211,7 @@ class RcslPolicyTrainer:
         num_episodes = 0
         episode_reward, episode_length = 0, 0
 
-        if is_gymnasium_env: # pointmaze environment, don't use horizon
+        if not self.has_terminal: # pointmaze environment, don't use horizon
             while num_episodes < self._eval_episodes:
                 rtg = torch.tensor([[self.goal]]).type(torch.float32)
                 for timestep in range(self.horizon): # One epoch
@@ -220,8 +223,8 @@ class RcslPolicyTrainer:
                         next_obs, reward, terminal, _ = self.eval_env.step(action.flatten())
                     if is_gymnasium_env:
                         next_obs = self.eval_env.get_true_observation(next_obs)
-                    if num_episodes == 2 and timestep < 10:
-                        print(f"Action {action}, next_obs {next_obs}, reward {reward}, rtg {rtg.item()}")
+                    # if num_episodes == 2 and timestep < 10:
+                    #     print(f"Action {action}, next_obs {next_obs}, reward {reward}, rtg {rtg.item()}")
                     episode_reward += reward
                     rtg = rtg - reward
                     episode_length += 1
@@ -297,7 +300,7 @@ class RcslPolicyTrainer:
         num_episodes = 0
         episode_reward, episode_length = 0, 0
 
-        if is_gymnasium_env: # pointmaze environment, don't use horizon
+        if not self.has_terminal: # pointmaze environment, don't use horizon
             while num_episodes < self._eval_episodes:
                 rtg = torch.tensor([[self.goal]]).type(torch.float32)
                 for timestep in range(self.horizon): # One epoch
@@ -309,8 +312,8 @@ class RcslPolicyTrainer:
                         next_obs, reward, terminal, _ = eval_env.step(action.flatten())
                     if is_gymnasium_env:
                         next_obs = eval_env.get_true_observation(next_obs)
-                    if num_episodes == 2 and timestep < 10:
-                        print(f"Action {action}, next_obs {next_obs}, reward {reward}, rtg {rtg.item()}")
+                    # if num_episodes == 2 and timestep < 10:
+                    #     print(f"Action {action}, next_obs {next_obs}, reward {reward}, rtg {rtg.item()}")
                     episode_reward += reward
                     rtg = rtg - reward
                     episode_length += 1
@@ -347,6 +350,197 @@ class RcslPolicyTrainer:
                 obs = next_obs
 
                 if terminal: # Episode finishes
+                    eval_ep_info_buffer.append(
+                        {"episode_reward": episode_reward, "episode_length": episode_length}
+                    )
+                    num_episodes +=1
+                    episode_reward, episode_length = 0, 0
+                    if is_gymnasium_env:
+                        obs, _ = eval_env.reset()
+                        obs = eval_env.get_true_observation(obs)
+                    else:
+                        obs = eval_env.reset()
+                    rtg = torch.tensor([[self.goal]]).type(torch.float32)
+        
+        return {
+            "eval/episode_reward": [ep_info["episode_reward"] for ep_info in eval_ep_info_buffer],
+            "eval/episode_length": [ep_info["episode_length"] for ep_info in eval_ep_info_buffer]
+        }
+
+class DiffusionPolicyTrainer(RcslPolicyTrainer):
+    def __init__(
+        self, *args, **kwargs
+    ) -> None:
+        super().__init__(*args, **kwargs)
+
+    def _evaluate(self) -> Dict[str, List[float]]:
+        '''
+        Always set desired rtg to 0
+        '''
+        # Pointmaze obs has different format, needs to be treated differently
+        is_gymnasium_env = self.is_gymnasium_env
+
+        self.eval_env.reset(seed=self.env_seed) # Fix seed
+        
+        self.policy.eval()
+        if is_gymnasium_env:
+            obs, _ = self.eval_env.reset()
+            obs = self.eval_env.get_true_observation(obs)
+        else:
+            obs = self.eval_env.reset()
+            
+
+        eval_ep_info_buffer = []
+        num_episodes = 0
+        episode_reward, episode_length = 0, 0
+
+        if not self.has_terminal: # pointmaze environment, don't use horizon
+            while num_episodes < self._eval_episodes:
+                rtg = torch.tensor([[self.goal]]).type(torch.float32)
+                for timestep in range(self.horizon): # One epoch
+                    # print(f"Timestep {timestep}, obs {obs}")
+                    action = self.policy.select_action(obs.reshape(1, -1), rtg)
+                    if hasattr(self.eval_env, "get_true_observation"): # gymnasium env 
+                        next_obs, reward, terminal, _, _ = self.eval_env.step(action.flatten())
+                    else:
+                        next_obs, reward, terminal, _ = self.eval_env.step(action.flatten())
+                    if is_gymnasium_env:
+                        next_obs = self.eval_env.get_true_observation(next_obs)
+                    # if num_episodes == 2 and timestep < 10:
+                    #     print(f"Action {action}, next_obs {next_obs}, reward {reward}, rtg {rtg.item()}")
+                    episode_reward += reward
+                    # No need to update return
+                    # rtg = rtg - reward
+                    episode_length += 1
+
+                    obs = next_obs
+
+                    # if terminal:
+                    #     break # Stop current epoch
+                print(episode_reward)
+                episode_reward = 1 if episode_reward > 0 else 0 # Clip to 1
+                eval_ep_info_buffer.append(
+                    {"episode_reward": episode_reward, "episode_length": episode_length}
+                )
+                num_episodes +=1
+                episode_reward, episode_length = 0, 0
+                if is_gymnasium_env:
+                    obs, _ = self.eval_env.reset()
+                    obs = self.eval_env.get_true_observation(obs)
+                else:
+                    obs = self.eval_env.reset()
+        else:
+            rtg = torch.tensor([[self.goal]]).type(torch.float32)
+            while num_episodes < self._eval_episodes:
+                # print(f"Timestep {timestep}, obs {obs}")
+                action = self.policy.select_action(obs.reshape(1, -1), rtg)
+                if hasattr(self.eval_env, "get_true_observation"): # gymnasium env 
+                    next_obs, reward, terminal, _, _ = self.eval_env.step(action.flatten())
+                else:
+                    next_obs, reward, terminal, _ = self.eval_env.step(action.flatten())
+                if is_gymnasium_env:
+                    next_obs = self.eval_env.get_true_observation(next_obs)
+                episode_reward += reward
+                # No need to update return
+                # rtg = rtg - reward
+                episode_length += 1
+
+                obs = next_obs
+
+                if terminal: # Episode finishes
+                    # print(episode_reward)
+                    episode_reward = 1 if episode_reward > 0 else 0 # Clip to 1
+                    eval_ep_info_buffer.append(
+                        {"episode_reward": episode_reward, "episode_length": episode_length}
+                    )
+                    num_episodes +=1
+                    episode_reward, episode_length = 0, 0
+                    if is_gymnasium_env:
+                        obs, _ = self.eval_env.reset()
+                        obs = self.eval_env.get_true_observation(obs)
+                    else:
+                        obs = self.eval_env.reset()
+                    rtg = torch.tensor([[self.goal]]).type(torch.float32)
+        
+        return {
+            "eval/episode_reward": [ep_info["episode_reward"] for ep_info in eval_ep_info_buffer],
+            "eval/episode_length": [ep_info["episode_length"] for ep_info in eval_ep_info_buffer]
+        }
+    
+    def _evaluate_no_fix_seed(self) -> Dict[str, List[float]]:
+        '''
+        Use self.eval_env2, which does not fix seed in every epoch
+        '''
+        # Pointmaze obs has different format, needs to be treated differently
+        is_gymnasium_env = self.is_gymnasium_env
+
+        assert self.eval_env2 is not None
+        eval_env = self.eval_env2
+        
+        self.policy.eval()
+        if is_gymnasium_env:
+            obs, _ = eval_env.reset()
+            obs = eval_env.get_true_observation(obs)
+        else:
+            obs = eval_env.reset()
+            
+
+        eval_ep_info_buffer = []
+        num_episodes = 0
+        episode_reward, episode_length = 0, 0
+
+        if not self.has_terminal: # pointmaze environment, don't use horizon
+            while num_episodes < self._eval_episodes:
+                rtg = torch.tensor([[self.goal]]).type(torch.float32)
+                for timestep in range(self.horizon): # One epoch
+                    # print(f"Timestep {timestep}, obs {obs}")
+                    action = self.policy.select_action(obs.reshape(1, -1), rtg)
+                    if hasattr(eval_env, "get_true_observation"): # gymnasium env 
+                        next_obs, reward, terminal, _, _ = eval_env.step(action.flatten())
+                    else:
+                        next_obs, reward, terminal, _ = eval_env.step(action.flatten())
+                    if is_gymnasium_env:
+                        next_obs = eval_env.get_true_observation(next_obs)
+                    # if num_episodes == 2 and timestep < 10:
+                    #     print(f"Action {action}, next_obs {next_obs}, reward {reward}, rtg {rtg.item()}")
+                    episode_reward += reward
+                    rtg = rtg - reward
+                    episode_length += 1
+
+                    obs = next_obs
+
+                    # if terminal:
+                    #     break # Stop current epoch
+                episode_reward = 1 if episode_reward > 0 else 0 # Clip to 1
+                eval_ep_info_buffer.append(
+                    {"episode_reward": episode_reward, "episode_length": episode_length}
+                )
+                num_episodes +=1
+                episode_reward, episode_length = 0, 0
+                if is_gymnasium_env:
+                    obs, _ = eval_env.reset()
+                    obs = eval_env.get_true_observation(obs)
+                else:
+                    obs = eval_env.reset()
+        else:
+            rtg = torch.tensor([[self.goal]]).type(torch.float32)
+            while num_episodes < self._eval_episodes:
+                # print(f"Timestep {timestep}, obs {obs}")
+                action = self.policy.select_action(obs.reshape(1, -1), rtg)
+                if hasattr(eval_env, "get_true_observation"): # gymnasium env 
+                    next_obs, reward, terminal, _, _ = eval_env.step(action.flatten())
+                else:
+                    next_obs, reward, terminal, _ = eval_env.step(action.flatten())
+                if is_gymnasium_env:
+                    next_obs = eval_env.get_true_observation(next_obs)
+                episode_reward += reward
+                rtg = rtg - reward
+                episode_length += 1
+
+                obs = next_obs
+
+                if terminal: # Episode finishes
+                    episode_reward = 1 if episode_reward > 0 else 0 # Clip to 1
                     eval_ep_info_buffer.append(
                         {"episode_reward": episode_reward, "episode_length": episode_length}
                     )
