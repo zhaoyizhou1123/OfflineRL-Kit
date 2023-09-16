@@ -1,6 +1,6 @@
 # Helper functions for pick place environment
 
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, Tuple
 import numpy as np
 import gym
 from gym.spaces import Box
@@ -12,10 +12,20 @@ def get_true_obs(obs: Dict[str, np.ndarray]) -> np.ndarray :
     our obs = object_position + object_orientation + state
     Question: Do we need to normalize state?
     '''
+    # if type(obs) is not np.ndarray:
     obj_pos = obs['object_position']
     obj_ori = obs['object_orientation']
     state = obs['state']
     return np.concatenate([obj_pos, obj_ori, state], axis = 0)
+    # else:
+    #     obss = []
+    #     for idx in range(len(obs)):
+    #         obj_pos = obs[idx]['object_position']
+    #         obj_ori = obs[idx]['object_orientation']
+    #         state = obs[idx]['state']
+    #         obss.append(np.concatenate([obj_pos, obj_ori, state], axis = 0))
+    #     return np.asarray(obss)
+
 
 class SimpleObsWrapper(gym.ObservationWrapper):
     '''
@@ -39,9 +49,13 @@ class SimpleObsWrapper(gym.ObservationWrapper):
             self.env.seed(seed)
         return self.observation(self.env.reset())
 
-def get_pickplace_dataset(data_dir: str) -> Dict:
+def get_pickplace_dataset(data_dir: str) -> Tuple[Dict, np.ndarray]:
     '''
     Concatenate prior_data and task_data
+
+    Return:
+        dataset: Dict
+        init_obss: np.ndarray (num_traj, obs_dim)
     '''
     with open(os.path.join(data_dir, 'pickplace_prior.npy'), "rb") as fp:
         prior_data = np.load(fp, allow_pickle=True)
@@ -50,11 +64,15 @@ def get_pickplace_dataset(data_dir: str) -> Dict:
     full_data = np.concatenate([prior_data, task_data], axis=0) # list of dict
     keys = ['observations', 'actions', 'rewards', 'next_observations', 'terminals']
     dict_data  = {}
+    init_obss = []
     for key in keys:
         values = []
         for d in full_data: # trajectory, dict of lists
-            value_list = d[key] # list
-            if key == 'observations' or key == 'next_observations':
+            value_list = d[key] # list of timesteps data
+            if key == 'observations':
+                values += [get_true_obs(obs) for obs in value_list] # element is list
+                init_obss.append(get_true_obs(value_list[0])) # Get initial observation
+            elif key == 'next_observations':
                 # print(get_true_obs(value_list[0]))
                 values += [get_true_obs(obs) for obs in value_list] # element is list
             else:
@@ -64,7 +82,9 @@ def get_pickplace_dataset(data_dir: str) -> Dict:
     # dict_data = flatten_dict(full_data, keys)
     rtgs = np.zeros_like(dict_data['rewards']) # no return
     dict_data['rtgs'] = rtgs
-    return dict_data
+
+    init_obss = np.asarray(init_obss)
+    return dict_data, init_obss
 
 # From https://github.com/avisingh599/cog/blob/master/rlkit/data_management/obs_dict_replay_buffer.py
 def flatten_n(xs):

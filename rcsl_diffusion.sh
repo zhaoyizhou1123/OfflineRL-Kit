@@ -1,6 +1,8 @@
-diff_path="logs/pickplace/diffusion/timestamp_23-0914-110329&0/checkpoint/policy.pth"
+# diff_path="logs/pickplace/diffusion/timestamp_23-0914-110329&0/checkpoint/policy.pth"
+# diff_path="logs/pickplace/diffusion/timestamp_23-0915-004443&0_keep/checkpoint/policy.pth"
+diff_path=None
 
-python run_example/pickplace/run_diffusion_pickplace.py --eval_episodes 100 --load_diffusion_path ${diff_path} --num_diffusion_iters 20 --horizon 100
+python run_example/pickplace/run_diffusion_pickplace.py --eval_episodes 10 --load_diffusion_path ${diff_path} --num_diffusion_iters 5 --horizon 40 --rcsl-epoch 1000
 
 # d_path="log/maze/combo/seed_1&timestamp_23-0809-143727/model"
 # algo=mopo

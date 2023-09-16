@@ -109,7 +109,7 @@ def get_args():
     parser.add_argument("--load-dynamics-path", type=none_or_str, default=None)
 
     # Behavior policy (diffusion)
-    parser.add_argument("--behavior_epoch", type=int, default=50)
+    parser.add_argument("--behavior_epoch", type=int, default=25)
     parser.add_argument("--num_diffusion_iters", type=int, default=10, help="Number of diffusion steps")
     parser.add_argument('--behavior_batch', type=int, default=256)
     parser.add_argument('--load_diffusion_path', type=none_or_str, default=None)

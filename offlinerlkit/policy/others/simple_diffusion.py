@@ -113,10 +113,11 @@ class ConditionalUnet1D(nn.Module):
     def __init__(
         self,
         input_dim,
-        global_cond_dim,
+        global_cond_dim, # should be obs_dim + 1
         embed_dim=256,
         down_dims=[256, 512, 1024],
     ):
+        # print(f"Unet: global_cond_dim = {global_cond_dim}")
         super().__init__()
         self.diffusion_step_encoder = nn.Sequential(
             SinusoidalPosEmb(embed_dim),
@@ -129,7 +130,7 @@ class ConditionalUnet1D(nn.Module):
         mid_dim = down_dims[-1]
         all_dims = [input_dim] + down_dims
         in_out_dims = list(zip(all_dims[:-1], all_dims[1:]))
-        cond_dim = embed_dim + global_cond_dim
+        cond_dim = embed_dim + global_cond_dim # 256 + obs_dim + 1 = 274
 
         # Down modules
         self.down_modules = nn.ModuleList()
@@ -203,7 +204,7 @@ class ConditionalDiffusionModel:
     def __init__(
         self,
         input_dim,
-        cond_shape_dict,
+        cond_shape_dict, # {"obs": obs_shape, "feat": (feature_dim,)}
         num_training_steps,
         num_diffusion_steps,
         clip_sample,
@@ -232,7 +233,7 @@ class ConditionalDiffusionModel:
         model_cls = ConditionalUnet1D if model_cls == "unet" else ConditionalResNet1D
         self.noise_pred_net = model_cls(
             input_dim=self.input_dim,
-            global_cond_dim=self.cond_dim,
+            global_cond_dim=self.cond_dim, # should be obs_dim + 1
         ).to(self.device)
 
         # Optimizer
@@ -266,6 +267,34 @@ class ConditionalDiffusionModel:
         return torch.cat(
             [self.cond_encoders[k](v) for k, v in cond_dict.items()], dim=-1
         )
+
+    @ torch.no_grad()
+    def validate(self, x, cond_dict):
+        noise = torch.randn_like(x)
+
+        # Sample a diffusion timestep for each data point
+        timestep = torch.randint(
+            low=0,
+            high=self.num_diffusion_steps,
+            size=(x.shape[0],),
+            device=self.device,
+        ).long()
+
+        # Forward diffusion process
+        x_t = self.noise_scheduler.add_noise(x, noise, timestep)
+
+        # Predict the noise residual
+        cond = self.encode_conditions(cond_dict)
+        noise_pred = self.noise_pred_net(x_t, timestep, cond)
+
+        # Compute loss
+        loss = nn.functional.mse_loss(noise_pred, noise)
+        result =  {
+            "holdout_loss": loss.item(),
+        }
+        
+        return result
+
 
     def learn(self, x, cond_dict):
         '''
@@ -317,12 +346,17 @@ class ConditionalDiffusionModel:
         return self.lr_scheduler
 
     def sample(self, cond_dict, w=None):
+        '''
+        cond_dict: {"obs": obs, "feat": feat}
+        '''
         # Copy EMA model weights
         self.ema.store(self.model_params)
         self.ema.copy_to(self.model_params)
 
         # Encode conditions
         cond = self.encode_conditions(cond_dict)
+
+        # print(f"Diff model: cond shape {cond.shape}")
 
         # Initialize sample
         sample = torch.randn((len(cond), self.input_dim), device=self.device)
@@ -396,7 +430,19 @@ class SimpleDiffusionPolicy(ConditionalDiffusionModel):
 
         return super().learn(actions, {"obs": obss, "feat": rtgs})
 
+    def validate(self, batch: Dict):
+        '''
+        Update one batch
+        '''
+        obss = batch['observations'].type(torch.float32).to(self.device)
+        actions = batch['actions'].type(torch.float32).to(self.device)
+        rtgs = batch['rtgs']
+        rtgs = rtgs.reshape(rtgs.shape[0], -1).type(torch.float32).to(self.device)
+
+        return super().validate(actions, {"obs": obss, "feat": rtgs})
+
     def select_action(self, obs, feat):
+        # print(f"DiffusionPolicy: select action with obs shape {obs.shape}, feat(rtg) shape {feat.shape}")
         obs = torch.as_tensor(obs, dtype = torch.float32, device = self.device)
         feat = torch.as_tensor(feat, dtype = torch.float32, device = self.device)
 

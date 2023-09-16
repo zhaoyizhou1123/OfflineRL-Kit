@@ -28,7 +28,7 @@ from offlinerlkit.utils.pickplace_utils import SimpleObsWrapper, get_pickplace_d
 from offlinerlkit.buffer import ReplayBuffer
 from offlinerlkit.utils.logger import Logger, make_log_dirs
 from offlinerlkit.utils.diffusion_logger import setup_logger
-from offlinerlkit.policy_trainer import RcslPolicyTrainer, DiffusionPolicyTrainer
+from offlinerlkit.policy_trainer import RcslPolicyTrainer, TestDiffusionPolicyTrainer
 from offlinerlkit.utils.trajectory import Trajectory
 from offlinerlkit.utils.none_or_str import none_or_str
 from offlinerlkit.policy import DiffusionBC, RcslPolicy, SimpleDiffusionPolicy
@@ -106,7 +106,7 @@ def get_args():
     parser.add_argument("--rcsl-hidden-dims", type=int, nargs='*', default=[20])
     parser.add_argument("--rcsl-lr", type=float, default=1e-3)
     parser.add_argument("--rcsl-batch", type=int, default=256)
-    parser.add_argument("--rcsl-epoch", type=int, default=1000)
+    parser.add_argument("--rcsl-epoch", type=int, default=30)
     parser.add_argument("--rcsl-step-per-epoch", type=int, default=1000)
     parser.add_argument("--eval_episodes", type=int, default=10)
     parser.add_argument("--fix_eval_seed", action="store_true", help="True to fix the seed for every eval")
@@ -142,6 +142,7 @@ def train(args=get_args()):
         # print(args.obs_shape)
         env = roboverse.make('Widow250PickTray-v0')
         env = SimpleObsWrapper(env)
+        v_env = gym.vector.SyncVectorEnv([lambda: SimpleObsWrapper(roboverse.make('Widow250PickTray-v0')) for t in range(args.eval_episodes)])
         env2 = roboverse.make('Widow250PickTray-v0')
         env2 = SimpleObsWrapper(env2)
         obs_space = env.observation_space
@@ -150,7 +151,7 @@ def train(args=get_args()):
         args.action_shape = env.action_space.shape
         action_dim = np.prod(args.action_shape)
 
-        dataset = get_pickplace_dataset(args.data_dir)
+        dataset, init_obss = get_pickplace_dataset(args.data_dir)
     else:
         raise NotImplementedError
 
@@ -255,10 +256,10 @@ def train(args=get_args()):
     rcsl_logger = Logger(rcsl_log_dirs, rcsl_output_config)
     rcsl_logger.log_hyperparameters(vars(args))
 
-    policy_trainer = DiffusionPolicyTrainer(
+    policy_trainer = TestDiffusionPolicyTrainer(
         policy = diffusion_policy,
         eval_env = env,
-        eval_env2 = None,
+        eval_env2 = v_env,
         offline_dataset = dataset,
         rollout_dataset = None,
         goal = 0,
@@ -276,10 +277,10 @@ def train(args=get_args()):
         # device = args.device
     )
     
-    print(f"Start evaluate")
-    # policy_trainer.train()
-    result = policy_trainer._evaluate()
-    print(result)
+    # print(f"Start evaluate")
+    policy_trainer.train()
+    # result = policy_trainer._evaluate()
+    # print(result)
 
 
 if __name__ == "__main__":
