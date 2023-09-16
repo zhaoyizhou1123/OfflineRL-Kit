@@ -269,7 +269,7 @@ class ConditionalDiffusionModel:
         )
 
     @ torch.no_grad()
-    def validate(self, x, cond_dict):
+    def validate(self, x, cond_dict, weights = None):
         noise = torch.randn_like(x)
 
         # Sample a diffusion timestep for each data point
@@ -288,7 +288,10 @@ class ConditionalDiffusionModel:
         noise_pred = self.noise_pred_net(x_t, timestep, cond)
 
         # Compute loss
-        loss = nn.functional.mse_loss(noise_pred, noise)
+        if weights is None:
+            loss = nn.functional.mse_loss(noise_pred, noise)
+        else:
+            loss = self.weighted_mse_loss(noise_pred, noise, weights)
         result =  {
             "holdout_loss": loss.item(),
         }
@@ -296,9 +299,11 @@ class ConditionalDiffusionModel:
         return result
 
 
-    def learn(self, x, cond_dict):
+    def learn(self, x, cond_dict, weights=None):
         '''
         train on one batch
+
+        weights: tensor (batch,)
         '''
         # Sample noise to add to data
         noise = torch.randn_like(x)
@@ -319,7 +324,10 @@ class ConditionalDiffusionModel:
         noise_pred = self.noise_pred_net(x_t, timestep, cond)
 
         # Compute loss
-        loss = nn.functional.mse_loss(noise_pred, noise)
+        if weights is None:
+            loss = nn.functional.mse_loss(noise_pred, noise)
+        else:
+            loss = self.weighted_mse_loss(noise_pred, noise, weights)
 
         # Step optimizer
         self.optimizer.zero_grad()
@@ -397,8 +405,22 @@ class ConditionalDiffusionModel:
         self.lr_scheduler.load_state_dict(state_dict["lr_scheduler"])
         self.ema.load_state_dict(state_dict["ema"])
 
+    def weighted_mse_loss(self, input, target, weight):
+        '''
+        input: (batch, dim)
+        target: (batch, dim)
+        weight: (batch) or (batch, 1)
+        '''
+        assert input.dim() == 2 and target.dim() == 2
+        dim = input.shape[1]
+        weight = weight.reshape(weight.shape[0], 1)
+        return torch.sum(weight * (input - target) ** 2) / (torch.sum(weight) * dim)
+
 
 class SimpleDiffusionPolicy(ConditionalDiffusionModel):
+    '''
+    Note: When loading DiffusionPolicy, also need to load scaler manually
+    '''
     def __init__(
         self,
         obs_shape,
@@ -427,8 +449,9 @@ class SimpleDiffusionPolicy(ConditionalDiffusionModel):
         actions = batch['actions'].type(torch.float32).to(self.device)
         rtgs = batch['rtgs']
         rtgs = rtgs.reshape(rtgs.shape[0], -1).type(torch.float32).to(self.device)
+        weights = batch['weights'].type(torch.float32).to(self.device) # (batch, )
 
-        return super().learn(actions, {"obs": obss, "feat": rtgs})
+        return super().learn(actions, {"obs": obss, "feat": rtgs}, weights)
 
     def validate(self, batch: Dict):
         '''
@@ -438,8 +461,9 @@ class SimpleDiffusionPolicy(ConditionalDiffusionModel):
         actions = batch['actions'].type(torch.float32).to(self.device)
         rtgs = batch['rtgs']
         rtgs = rtgs.reshape(rtgs.shape[0], -1).type(torch.float32).to(self.device)
+        weights = batch['weights'].type(torch.float32).to(self.device) # (batch, )
 
-        return super().validate(actions, {"obs": obss, "feat": rtgs})
+        return super().validate(actions, {"obs": obss, "feat": rtgs}, weights)
 
     def select_action(self, obs, feat):
         # print(f"DiffusionPolicy: select action with obs shape {obs.shape}, feat(rtg) shape {feat.shape}")

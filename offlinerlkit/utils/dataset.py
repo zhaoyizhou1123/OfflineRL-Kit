@@ -64,6 +64,7 @@ class DictDataset(Dataset):
             terminals:
             rewards:
             rtgs:
+            weights:
         '''
         return {
             'observations': self.dataset[self.obss_key][index],
@@ -71,7 +72,8 @@ class DictDataset(Dataset):
             'actions': self.dataset['actions'][index],
             'terminals': self.dataset['terminals'][index],
             'rewards': self.dataset['rewards'][index],
-            'rtgs': self.dataset['rtgs'][index]
+            'rtgs': self.dataset['rtgs'][index],
+            'weights': self.dataset['weights'][index]
         }
 
 

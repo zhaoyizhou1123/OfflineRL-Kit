@@ -62,7 +62,7 @@ def get_args():
     parser.add_argument("--task", type=str, default="pickplace", help="maze") # Self-constructed environment
     parser.add_argument('--debug',action='store_true', help='Print debuuging info if true')
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--num_workers", type=int, default=4, help="Dataloader workers, align with cpu number")
+    parser.add_argument("--num_workers", type=int, default=6, help="Dataloader workers, align with cpu number")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
 
     # env config (pickplace)
@@ -95,6 +95,7 @@ def get_args():
     parser.add_argument('--behavior_batch', type=int, default=256)
     parser.add_argument('--load_diffusion_path', type=none_or_str, default=None, help = "path to .pth file")
     parser.add_argument('--diffusion_seed', type=str, default='0', help="Distinguish runs for diffusion policy, not random seed")
+    parser.add_argument('--task_weight', type=float, default=1.)
 
     # Rollout 
     parser.add_argument('--rollout_ckpt_path', type=none_or_str, default=None, help="./checkpoint/maze2_smd_stable, file path, used to load/store rollout trajs" )
@@ -151,7 +152,7 @@ def train(args=get_args()):
         args.action_shape = env.action_space.shape
         action_dim = np.prod(args.action_shape)
 
-        dataset, init_obss = get_pickplace_dataset(args.data_dir)
+        dataset, init_obss = get_pickplace_dataset(args.data_dir, task_weight=args.task_weight)
     else:
         raise NotImplementedError
 

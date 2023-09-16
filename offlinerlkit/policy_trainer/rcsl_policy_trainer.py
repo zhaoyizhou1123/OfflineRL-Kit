@@ -415,9 +415,12 @@ class TestDiffusionPolicyTrainer(RcslPolicyTrainer):
         #     raise NotImplementedError       
 
         # train loop
-        eval_info = self._evaluate_vector()
-        ep_reward_mean, ep_reward_std = np.mean(eval_info["eval/episode_reward"]), np.std(eval_info["eval/episode_reward"])
-        print(f"Mean: {ep_reward_mean}, std: {ep_reward_std}")
+        # eval_info = self._evaluate_vector()
+        # ep_reward_mean, ep_reward_std = np.mean(eval_info["eval_vec/episode_reward"]), np.std(eval_info["eval_vec/episode_reward"])
+        # print(f"Mean: {ep_reward_mean}, std: {ep_reward_std}")
+        # eval_info = self._evaluate()
+        # ep_reward_mean, ep_reward_std = np.mean(eval_info["eval/episode_reward"]), np.std(eval_info["eval/episode_reward"])
+        # print(f"Mean: {ep_reward_mean}, std: {ep_reward_std}")
         for e in range(1, self._epoch + 1):
 
             self.policy.train()
@@ -461,15 +464,27 @@ class TestDiffusionPolicyTrainer(RcslPolicyTrainer):
             self.validate(holdout_dataset)
             
             # evaluate current policy
-            eval_info = self._evaluate_vector()
+            eval_vec_info = self._evaluate_vector()
+            ep_reward_mean_vec, ep_reward_std_vec = np.mean(eval_vec_info["eval_vec/episode_reward"]), np.std(eval_vec_info["eval_vec/episode_reward"])
+            ep_reward_max_vec, ep_reward_min_vec = np.max(eval_vec_info["eval_vec/episode_reward"]), np.min(eval_vec_info["eval_vec/episode_reward"])
+            ep_length_mean_vec, ep_length_std_vec = np.mean(eval_vec_info["eval_vec/episode_length"]), np.std(eval_vec_info["eval_vec/episode_length"])
+            pick_success_vec = np.mean(eval_vec_info["eval_vec/pick_success"])
+
+            eval_info = self._evaluate()
             ep_reward_mean, ep_reward_std = np.mean(eval_info["eval/episode_reward"]), np.std(eval_info["eval/episode_reward"])
             ep_reward_max, ep_reward_min = np.max(eval_info["eval/episode_reward"]), np.min(eval_info["eval/episode_reward"])
             ep_length_mean, ep_length_std = np.mean(eval_info["eval/episode_length"]), np.std(eval_info["eval/episode_length"])
+            pick_success = np.mean(eval_info["eval/pick_success"])
 
             if not hasattr(self.eval_env, "get_normalized_score"): # gymnasium_env does not have normalized score
                 last_10_performance.append(ep_reward_mean)
                 self.logger.logkv("eval/episode_reward", ep_reward_mean)
-                self.logger.logkv("eval/episode_reward_std", ep_reward_std)         
+                self.logger.logkv("eval/episode_reward_std", ep_reward_std)  
+                self.logger.logkv("eval/pick_success", pick_success)    
+                self.logger.logkv("eval_vec/episode_reward", ep_reward_mean_vec)
+                self.logger.logkv("eval_vec/episode_reward_std", ep_reward_std_vec)   
+                self.logger.logkv("eval_vec/pick_success", pick_success_vec)
+                    
             else:       
                 norm_ep_rew_mean = self.eval_env.get_normalized_score(ep_reward_mean) * 100
                 norm_ep_rew_std = self.eval_env.get_normalized_score(ep_reward_std) * 100
@@ -539,13 +554,14 @@ class TestDiffusionPolicyTrainer(RcslPolicyTrainer):
         if not self.has_terminal: # pointmaze environment, don't use horizon
             while num_episodes < self._eval_episodes:
                 rtg = torch.tensor([[self.goal]]).type(torch.float32)
+                pick_success = False
                 for timestep in range(self.horizon): # One epoch
                     # print(f"Timestep {timestep}, obs {obs}")
                     action = self.policy.select_action(obs.reshape(1, -1), rtg)
                     if hasattr(self.eval_env, "get_true_observation"): # gymnasium env 
                         next_obs, reward, terminal, _, _ = self.eval_env.step(action.flatten())
                     else:
-                        next_obs, reward, terminal, _ = self.eval_env.step(action.flatten())
+                        next_obs, reward, terminal, info = self.eval_env.step(action.flatten())
                     if is_gymnasium_env:
                         next_obs = self.eval_env.get_true_observation(next_obs)
                     # if num_episodes == 2 and timestep < 10:
@@ -555,14 +571,18 @@ class TestDiffusionPolicyTrainer(RcslPolicyTrainer):
                     rtg = rtg - reward
                     episode_length += 1
 
+                    if info['grasp_success_target']: # pick okay
+                        pick_success = True
+
                     obs = next_obs
 
                     # if terminal:
                     #     break # Stop current epoch
-                print(episode_reward)
+                # print(episode_reward)
                 episode_reward = 1 if episode_reward > 0 else 0 # Clip to 1
                 eval_ep_info_buffer.append(
-                    {"episode_reward": episode_reward, "episode_length": episode_length}
+                    {"episode_reward": episode_reward, "episode_length": episode_length,
+                     "pick_success": float(pick_success)}
                 )
                 num_episodes +=1
                 episode_reward, episode_length = 0, 0
@@ -594,7 +614,6 @@ class TestDiffusionPolicyTrainer(RcslPolicyTrainer):
                     eval_ep_info_buffer.append(
                         {"episode_reward": episode_reward, "episode_length": episode_length}
                     )
-                    num_episodes +=1
                     episode_reward, episode_length = 0, 0
                     if is_gymnasium_env:
                         obs, _ = self.eval_env.reset()
@@ -605,7 +624,8 @@ class TestDiffusionPolicyTrainer(RcslPolicyTrainer):
         
         return {
             "eval/episode_reward": [ep_info["episode_reward"] for ep_info in eval_ep_info_buffer],
-            "eval/episode_length": [ep_info["episode_length"] for ep_info in eval_ep_info_buffer]
+            "eval/episode_length": [ep_info["episode_length"] for ep_info in eval_ep_info_buffer],
+            "eval/pick_success": [ep_info["pick_success"] for ep_info in eval_ep_info_buffer]
         }
     
     def _evaluate_vector(self) -> Dict[str, List[float]]:
@@ -636,6 +656,7 @@ class TestDiffusionPolicyTrainer(RcslPolicyTrainer):
         # if not self.has_terminal: # pointmaze environment, don't use horizon
         # rtg = torch.tensor([[self.goal]]).type(torch.float32)
         rtg = self.goal * torch.ones((batch, 1), dtype=torch.float32)
+        pick_success = [False for _ in range(batch)]
         for timestep in range(self.horizon): # One epoch
             # print(f"Timestep {timestep}, obs {obs}")
             # print(f"Batch: {batch}")s
@@ -643,7 +664,7 @@ class TestDiffusionPolicyTrainer(RcslPolicyTrainer):
             if hasattr(eval_env, "get_true_observation"): # gymnasium env 
                 next_obs, reward, terminal, _, _ = eval_env.step(action)
             else:
-                next_obs, reward, terminal, _ = eval_env.step(action)
+                next_obs, reward, terminal, info = eval_env.step(action)
 
             if is_gymnasium_env:
                 next_obs = eval_env.get_true_observation(next_obs)
@@ -654,6 +675,10 @@ class TestDiffusionPolicyTrainer(RcslPolicyTrainer):
             rtg = rtg - reward[:,None]
             episode_length += 1
 
+            for idx, single_info in enumerate(info):
+                if single_info["grasp_success_target"]:
+                    pick_success[idx] = True
+
             obs = next_obs
 
             # if terminal:
@@ -662,7 +687,7 @@ class TestDiffusionPolicyTrainer(RcslPolicyTrainer):
         # eval_ep_info_buffer.append(
         #     {"episode_reward": episode_reward, "episode_length": episode_length}
         # )
-        eval_ep_info_buffer = [{"episode_reward": episode_reward[e], "episode_length": episode_length[e]} for e in range(len(episode_reward))]
+        eval_ep_info_buffer = [{"episode_reward": episode_reward[e], "episode_length": episode_length[e], "pick_success": float(pick_success[e])} for e in range(len(episode_reward))]
         # num_episodes +=1
         episode_reward, episode_length = np.zeros(self._eval_episodes), np.zeros(self._eval_episodes, dtype = np.int64)
         if is_gymnasium_env:
@@ -702,8 +727,9 @@ class TestDiffusionPolicyTrainer(RcslPolicyTrainer):
         #             rtg = torch.tensor([[self.goal]]).type(torch.float32)
         
         return {
-            "eval/episode_reward": [ep_info["episode_reward"] for ep_info in eval_ep_info_buffer],
-            "eval/episode_length": [ep_info["episode_length"] for ep_info in eval_ep_info_buffer]
+            "eval_vec/episode_reward": [ep_info["episode_reward"] for ep_info in eval_ep_info_buffer],
+            "eval_vec/episode_length": [ep_info["episode_length"] for ep_info in eval_ep_info_buffer],
+            "eval_vec/pick_success": [ep_info["pick_success"] for ep_info in eval_ep_info_buffer]
         }
 
     @ torch.no_grad()

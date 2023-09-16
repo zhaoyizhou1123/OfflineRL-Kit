@@ -49,20 +49,23 @@ class SimpleObsWrapper(gym.ObservationWrapper):
             self.env.seed(seed)
         return self.observation(self.env.reset())
 
-def get_pickplace_dataset(data_dir: str) -> Tuple[Dict, np.ndarray]:
+def get_pickplace_dataset(data_dir: str, prior_weight: float =1., task_weight: float = 1.) -> Tuple[Dict, np.ndarray]:
     '''
     Concatenate prior_data and task_data
+    prior_weight and task_weight: weight of data point
 
     Return:
-        dataset: Dict
+        dataset: Dict, additional key 'weights'
         init_obss: np.ndarray (num_traj, obs_dim)
     '''
     with open(os.path.join(data_dir, 'pickplace_prior.npy'), "rb") as fp:
         prior_data = np.load(fp, allow_pickle=True)
     with open(os.path.join(data_dir, 'pickplace_task.npy'), "rb") as ft:
         task_data = np.load(ft, allow_pickle=True)
+    set_weight(prior_data, prior_weight)
+    set_weight(task_data, task_weight)
     full_data = np.concatenate([prior_data, task_data], axis=0) # list of dict
-    keys = ['observations', 'actions', 'rewards', 'next_observations', 'terminals']
+    keys = ['observations', 'actions', 'rewards', 'next_observations', 'terminals', 'weights']
     dict_data  = {}
     init_obss = []
     for key in keys:
@@ -86,6 +89,12 @@ def get_pickplace_dataset(data_dir: str) -> Tuple[Dict, np.ndarray]:
     init_obss = np.asarray(init_obss)
     return dict_data, init_obss
 
+def set_weight(dataset: np.ndarray, weight: float):
+    for traj in list(dataset):
+        traj_len = len(traj['rewards'])
+        weights = [weight for _ in range(traj_len)]
+        traj['weights'] = weights
+
 # From https://github.com/avisingh599/cog/blob/master/rlkit/data_management/obs_dict_replay_buffer.py
 def flatten_n(xs):
     xs = np.asarray(xs)
@@ -105,7 +114,7 @@ if __name__ == '__main__':
     import roboverse
     env = roboverse.make('Widow250PickTray-v0')
     env = SimpleObsWrapper(env)
-    dict_data = get_pickplace_dataset("./dataset")
+    dict_data, _ = get_pickplace_dataset("./dataset")
     for k,v in dict_data.items():
         print(k)
         print(v.shape)
