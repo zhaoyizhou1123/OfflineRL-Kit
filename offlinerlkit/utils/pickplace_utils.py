@@ -1,6 +1,6 @@
 # Helper functions for pick place environment
 
-from typing import Dict, Optional, Union, Tuple
+from typing import Dict, Optional, Union, Tuple, List
 import numpy as np
 import gym
 from gym.spaces import Box
@@ -46,13 +46,17 @@ class SimpleObsWrapper(gym.ObservationWrapper):
 
     def reset(self, seed = None):
         if seed is not None:
-            self.env.seed(seed)
+            np.random.seed(seed) # controls env seed
         return self.observation(self.env.reset())
 
-def get_pickplace_dataset(data_dir: str, prior_weight: float =1., task_weight: float = 1.) -> Tuple[Dict, np.ndarray]:
+def get_pickplace_dataset(data_dir: str, prior_weight: float =1., task_weight: float = 1., set_type: str = 'full', sample_ratio: float = 1.) -> Tuple[Dict, np.ndarray]:
     '''
     Concatenate prior_data and task_data
     prior_weight and task_weight: weight of data point
+
+    Args:
+        set_type: 'prior', 'task', 'full'
+        sample_ratio: Ratio of trajectories sampled. Sometimes we want to train on a smaller dataset.
 
     Return:
         dataset: Dict, additional key 'weights'
@@ -64,7 +68,22 @@ def get_pickplace_dataset(data_dir: str, prior_weight: float =1., task_weight: f
         task_data = np.load(ft, allow_pickle=True)
     set_weight(prior_data, prior_weight)
     set_weight(task_data, task_weight)
-    full_data = np.concatenate([prior_data, task_data], axis=0) # list of dict
+
+    # Sample trajectories
+    num_trajs_prior = int(len(prior_data) * sample_ratio)
+    idxs_prior = np.random.choice(len(prior_data), size=(num_trajs_prior), replace = False)
+    prior_data = prior_data[idxs_prior]
+
+    num_trajs_task = int(len(task_data) * sample_ratio)
+    idxs_task = np.random.choice(len(task_data), size=(num_trajs_task), replace = False)
+    task_data = task_data[idxs_task]
+
+    if set_type == 'full':
+        full_data = np.concatenate([prior_data, task_data], axis=0) # list of dict
+    elif set_type == 'prior':
+        full_data = prior_data
+    elif set_type =='task':
+        full_data = task_data
     keys = ['observations', 'actions', 'rewards', 'next_observations', 'terminals', 'weights']
     dict_data  = {}
     init_obss = []
@@ -94,6 +113,18 @@ def set_weight(dataset: np.ndarray, weight: float):
         traj_len = len(traj['rewards'])
         weights = [weight for _ in range(traj_len)]
         traj['weights'] = weights
+
+def set_weight_dict(dataset: Dict[str, np.ndarray], weight: float):
+    dataset_len = len(dataset['rewards'])
+    weights = [weight for _ in range(dataset_len)]
+    dataset['weights'] = np.asarray(weights)
+
+def merge_dataset(dataset_list: List[Dict[str, np.ndarray]]):
+    large_dataset = {}
+    for k in ['observations', 'actions', 'rewards', 'next_observations', 'rtgs', 'terminals', 'weights']:
+        v_list = [dataset[k].reshape(dataset[k].shape[0],-1) for dataset in dataset_list] # element: (T, dim) or (T,)
+        large_dataset[k] = np.concatenate(v_list, axis = 0)
+    return large_dataset
 
 # From https://github.com/avisingh599/cog/blob/master/rlkit/data_management/obs_dict_replay_buffer.py
 def flatten_n(xs):

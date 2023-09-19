@@ -29,7 +29,7 @@ from offlinerlkit.utils.pickplace_utils import SimpleObsWrapper, get_pickplace_d
 from offlinerlkit.buffer import ReplayBuffer
 from offlinerlkit.utils.logger import Logger, make_log_dirs
 from offlinerlkit.utils.diffusion_logger import setup_logger
-from offlinerlkit.policy_trainer import RcslPolicyTrainer, DiffusionPolicyTrainer, TestDiffusionPolicyTrainer
+from offlinerlkit.policy_trainer import RcslPolicyTrainer, DiffusionPolicyTrainer, RcslPolicyTrainer_v2
 from offlinerlkit.utils.trajectory import Trajectory
 from offlinerlkit.utils.none_or_str import none_or_str
 from offlinerlkit.policy import DiffusionBC, RcslPolicy, SimpleDiffusionPolicy
@@ -60,7 +60,7 @@ def get_args():
     parser = argparse.ArgumentParser()
     # general
     parser.add_argument("--algo-name", type=str, default="test_dyn")
-    parser.add_argument("--task", type=str, default="pickplace", help="pickplace") # Self-constructed environment
+    parser.add_argument("--task", type=str, default="pickplace", help="pickplace, pickplace_easy") # Self-constructed environment
     parser.add_argument("--dataset", type=none_or_str, default=None, help="../D4RL/dataset/halfcheetah/output.hdf5") # Self-constructed environment
     parser.add_argument('--debug',action='store_true', help='Print debuuging info if true')
     parser.add_argument("--seed", type=int, default=0)
@@ -509,7 +509,7 @@ def train(args=get_args()):
 
     get_rollout_policy() # Load diffusion policy
 
-    policy_trainer = TestDiffusionPolicyTrainer(
+    policy_trainer = RcslPolicyTrainer_v2(
         policy = diffusion_policy,
         eval_env = env,
         eval_env2 = None,

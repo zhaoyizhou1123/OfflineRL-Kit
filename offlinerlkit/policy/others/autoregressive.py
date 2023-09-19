@@ -25,7 +25,7 @@ class AutoregressivePolicy(nn.Module):
         self.device = device
         self.model = self.model.to(self.device)
 
-    def forward(self, obs):
+    def forward(self, obs, deterministic: bool = False):
         batch_size = obs.size(0)
 
         # Initialize action to zeros
@@ -44,24 +44,28 @@ class AutoregressivePolicy(nn.Module):
             # assert logstd.exp() > 0, logstd
 
             # logstd might be too small
-            if logstd.exp() == 0:
+            if deterministic:
                 next_dim = mean
             else:
-                dist = Normal(mean, logstd.exp())
-                next_dim = dist.sample()
+                assert logstd.exp() != float('nan'), f"{logstd}"
+                if logstd.exp() == 0:
+                    next_dim = mean
+                else:
+                    dist = Normal(mean, logstd.exp())
+                    next_dim = dist.sample()
             act = torch.cat([act[:, :i], next_dim, act[:, i + 1 :]], dim=1)
 
         return act
 
-    def select_action(self, obs: np.ndarray, rtg: np.ndarray) -> np.ndarray:
+    def select_action(self, obs: np.ndarray, rtg: np.ndarray, deterministic: bool = False) -> np.ndarray:
         with torch.no_grad():
             obs = torch.tensor(obs, dtype=torch.float32).to(self.device)
             # print(obs.shape)
-            action = self.forward(obs)
+            action = self.forward(obs, deterministic)
             # print(f"Dist mean, var: {dist.mean}, {dist.scale}")
         return action.cpu().numpy()
 
-    def fit(self, obs, act):
+    def fit(self, obs, act, weights = None):
         batch_size = obs.size(0)
 
         # Generate all the one-hot vectors, expand by repeat
@@ -74,7 +78,7 @@ class AutoregressivePolicy(nn.Module):
             - one_hot_all
         )  # lower trig - diag
         mask_full = mask.repeat_interleave(batch_size, dim=0)
-        act_full = act.repeat(self.act_dim, 1)
+        act_full = act.repeat(self.act_dim, 1) # (batch*act_dim, act_dim)
         act_masked = act_full * mask_full
 
         # Repeat obs by act_dim times
@@ -92,7 +96,15 @@ class AutoregressivePolicy(nn.Module):
             x = layer(x)
         mean, logstd = torch.chunk(x, 2, dim=-1)
         dist = Normal(mean, logstd.exp())
-        loss = -dist.log_prob(target).mean()
+        loss = -dist.log_prob(target)
+        # assert loss.dim() == 1, f"Loss shape {loss.shape}"
+        if weights is None:
+            loss = loss.mean()
+        else:
+            loss = loss.reshape(loss.shape[0], -1) # (batch * act_dim, 1)
+            weights = weights.reshape(weights.shape[0], -1) # (batch, 1)
+            weights = weights.repeat(self.act_dim, 1) # (batch * act_dim, 1)
+            loss = torch.sum(loss * weights) / (torch.sum(weights) * loss.shape[-1])
         return loss
     
     def learn(self, batch: Dict) -> Dict[str, float]:
@@ -103,9 +115,13 @@ class AutoregressivePolicy(nn.Module):
         # obss, actions, next_obss, rewards, terminals = mix_batch["observations"], mix_batch["actions"], \
         #     mix_batch["next_observations"], mix_batch["rewards"], mix_batch["terminals"]
         obss, actions, rtgs = batch["observations"], batch["actions"], batch["rtgs"]
-        obss = obss.to(self.device)
-        actions = actions.to(self.device)
-        loss = self.fit(obss, actions)
+        obss = obss.type(torch.float32).to(self.device)
+        actions = actions.type(torch.float32).to(self.device)
+        if 'weights' in batch:
+            weights = batch['weights'].type(torch.float32).to(self.device) # (batch, )
+        else:
+            weights = None
+        loss = self.fit(obss, actions, weights)
 
         # Compute Cross Entropy loss
         # Need to compute by ourselves. Because dist.log_prob does not contain correct gradient
@@ -118,10 +134,30 @@ class AutoregressivePolicy(nn.Module):
         self.rcsl_optim.step()
 
         result =  {
-            "loss": loss.item(),
+            "holdout_loss": loss.item(),
         }
         
         return result
+
+    def validate(self, batch: Dict) -> Dict[str, float]:
+        # real_batch, fake_batch = batch["real"], batch["fake"]
+        # # Mix data from real (offline) and fake (rollout)
+        # mix_batch = {k: torch.cat([real_batch[k], fake_batch[k]], 0) for k in real_batch.keys()}
+
+        # obss, actions, next_obss, rewards, terminals = mix_batch["observations"], mix_batch["actions"], \
+        #     mix_batch["next_observations"], mix_batch["rewards"], mix_batch["terminals"]
+        obss, actions, rtgs = batch["observations"], batch["actions"], batch["rtgs"]
+        obss = obss.type(torch.float32).to(self.device)
+        actions = actions.type(torch.float32).to(self.device)
+        if 'weights' in batch:
+            weights = batch['weights'].type(torch.float32).to(self.device) # (batch, )
+        else:
+            weights = None
+        with torch.no_grad():
+            loss = self.fit(obss, actions, weights)
+        return {
+            "loss": loss.item()
+        }
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from offlinerlkit.modules.dist_module import DiagGaussian, TanhDiagGaussian
 from offlinerlkit.modules.dynamics_module import EnsembleDynamicsModel
 from offlinerlkit.modules.rcsl_gauss_module import RcslGaussianModule
 from offlinerlkit.modules.rcsl_module import RcslModule
+from offlinerlkit.modules.autoregressive_dynamics_module import AutoregressiveDynamicsModel
 
 
 __all__ = [
@@ -16,5 +17,6 @@ __all__ = [
     "TanhDiagGaussian",
     "EnsembleDynamicsModel",
     "RcslGaussianModule",
-    "RcslModule"
+    "RcslModule",
+    "AutoregressiveDynamicsModel"
 ]

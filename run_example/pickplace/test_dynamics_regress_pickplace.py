@@ -3,8 +3,8 @@ import os
 import sys
 import random
 
-import gym
-import d4rl
+# import gym
+# import d4rl
 
 import numpy as np
 import torch
@@ -17,8 +17,8 @@ import roboverse
 
 # import __init__
 from offlinerlkit.nets import MLP
-from offlinerlkit.modules import ActorProb, Critic, TanhDiagGaussian, EnsembleDynamicsModel, RcslGaussianModule as RcslModule
-from offlinerlkit.dynamics import BaseDynamics, EnsembleDynamics
+from offlinerlkit.modules import ActorProb, Critic, TanhDiagGaussian, AutoregressiveDynamicsModel, RcslGaussianModule as RcslModule
+from offlinerlkit.dynamics import BaseDynamics, EnsembleDynamics, AutoregressiveDynamics
 from offlinerlkit.utils.scaler import StandardScaler
 from offlinerlkit.utils.termination_fns import get_termination_fn
 from offlinerlkit.utils.load_dataset import qlearning_dataset, traj_rtg_datasets
@@ -99,8 +99,6 @@ def get_args():
     parser.add_argument('--load_diffusion_path', type=none_or_str, default=None)
     parser.add_argument('--diffusion_seed', type=str, default='0', help="Distinguish runs for diffusion policy, not random seed")
     parser.add_argument('--task_weight', type=float, default=1.5)
-    parser.add_argument('--sample_ratio', type=float, default=0.5)
-    
 
     # Rollout 
     parser.add_argument('--rollout_ckpt_path', type=none_or_str, default=None, help="./checkpoint/maze2_smd_stable, file path, used to load/store rollout trajs" )
@@ -122,13 +120,6 @@ def get_args():
 
 def train(args=get_args()):
     print(args)
-
-    # seed
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.cuda.manual_seed_all(args.seed)
-    torch.backends.cudnn.deterministic = True
 
     # create env and dataset
     if args.task == 'pickplace' or args.task == 'pickplace_easy':
@@ -155,14 +146,22 @@ def train(args=get_args()):
         args.action_shape = env.action_space.shape
         action_dim = np.prod(args.action_shape)
 
-        diff_dataset, _ = get_pickplace_dataset(args.data_dir, sample_ratio =args.sample_ratio, task_weight=args.task_weight)
-        dyn_dataset, init_obss = get_pickplace_dataset(args.data_dir)
+        offline_dataset, init_obss_dataset = get_pickplace_dataset(args.data_dir, task_weight=args.task_weight)
     else:
         raise NotImplementedError
 
+
+    # seed
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+    torch.backends.cudnn.deterministic = True
+    env.reset(seed = args.seed)
+
     # print(f"dynamics_hidden_dims = {args.dynamics_hidden_dims}")
     # log
-    log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part = "dynamics", record_params=['sample_ratio', 'task_weight'])
+    log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part = "dynamics_regress", record_params=['eval_episodes', 'task_weight'])
     # key: output file name, value: output handler type
     output_config = {
         "consoleout_backup": "stdout",
@@ -173,26 +172,23 @@ def train(args=get_args()):
     logger = Logger(log_dirs, output_config)
     logger.log_hyperparameters(vars(args))
 
-    dynamics_model = EnsembleDynamicsModel(
+    dynamics_model = AutoregressiveDynamicsModel(
         obs_dim=obs_dim,
-        action_dim=action_dim,
+        act_dim=action_dim,
         hidden_dims=args.dynamics_hidden_dims,
-        num_ensemble=args.n_ensemble,
-        num_elites=args.n_elites,
-        weight_decays=args.dynamics_weight_decay,
-        device=args.device
+        device = args.device
     )
     dynamics_optim = torch.optim.Adam(
         dynamics_model.parameters(),
         lr=args.dynamics_lr
     )
     scaler = StandardScaler()
-    termination_fn = get_termination_fn(task=args.task)
-    dynamics = EnsembleDynamics(
+    # termination_fn = get_termination_fn(task=args.task)
+    dynamics = AutoregressiveDynamics(
         dynamics_model,
         dynamics_optim,
         scaler,
-        termination_fn
+        # termination_fn
     )
 
     # create rollout policy
@@ -207,7 +203,7 @@ def train(args=get_args()):
 
     diff_lr_scheduler = diffusion_policy.get_lr_scheduler()
 
-    diff_log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part="diffusion", record_params=['sample_ratio', 'task_weight'])
+    diff_log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part="diffusion", record_params=['eval_episodes', 'task_weight'])
     # key: output file name, value: output handler type
     diff_output_config = {
         "consoleout_backup": "stdout",
@@ -220,7 +216,7 @@ def train(args=get_args()):
 
     diff_policy_trainer = DiffusionPolicyTrainer(
         policy = diffusion_policy,
-        offline_dataset = diff_dataset,
+        offline_dataset = offline_dataset,
         logger = diff_logger,
         seed = args.seed,
         epoch = args.behavior_epoch,
@@ -276,9 +272,10 @@ def train(args=get_args()):
             dynamics.load(args.load_dynamics_path)
         else: 
             print(f"Train dynamics")
-            dynamics.train(dyn_dataset, logger, max_epochs_since_update=5)
+            dynamics.train(offline_dataset, logger, max_epochs_since_update=5)
+            # raise NotImplementedError
         
-    # Finish get_rollout_policy
+    # # Finish get_rollout_policy
     def get_rollout_policy():
         '''
         Load or train rollout policy
@@ -294,10 +291,129 @@ def train(args=get_args()):
         else:
             print(f"Train diffusion behavior policy")
             diff_policy_trainer.train() # save checkpoint periodically
+            # raise NotImplementedError
             # diffusion_policy.save_checkpoint(epoch=None) # Save final model
 
     get_dynamics()
     get_rollout_policy()
+
+    # def test_rollout(use_pred = False):
+    #     '''
+    #     use_pred: If True, use predicted state each round
+    #     '''
+    #     if use_pred:
+    #         print("Using predicted observation to select action")
+    #     else:
+    #         print("Using true observation to select action")
+    #     device = args.device
+    #     num_need_traj = args.num_need_traj
+
+    #     trajs = [] # Initialize valid rollout trajs. If there is checkpoint, first load checkpoint
+    #     start_epoch = 0 # Default starting epoch
+    #     # if args.rollout_ckpt_path is not None:
+    #     #     print(f"Will save rollout trajectories to dir {args.rollout_ckpt_path}")
+    #     #     os.makedirs(args.rollout_ckpt_path, exist_ok=True)
+    #     #     data_path = os.path.join(args.rollout_ckpt_path, "rollout.dat")
+    #     #     if os.path.exists(data_path): # Load ckpt_data
+    #     #         ckpt_dict = pickle.load(open(data_path,"rb")) # checkpoint in dict type
+    #     #         trajs = ckpt_dict['trajs']
+    #     #         start_epoch = ckpt_dict['epoch'] + 1
+    #     #         # trajs = ckpt_dict
+    #     #         print(f"Loaded checkpoint. Already have {len(trajs)} valid trajectories, start from epoch {start_epoch}.")
+    #     #         if len(trajs) >= num_need_traj:
+    #     #             print(f"Checkpoint trajectories are enough. Skip rollout procedure.")
+    #     #             return trajs
+
+    #     valid_cnt = 0
+    #     pred_cnt = 0
+    #     with torch.no_grad():
+    #         for epoch in range(start_epoch, args.rollout_epochs):
+    #             # batch_indexs = np.random.randint(0, init_obss_dataset.shape[0], size=1)
+    #             # init_obss = init_obss_dataset[batch_indexs]
+    #             true_state = env.reset() # (state_dim)
+    #             pred_state = true_state[None, :]
+    #             # print(pred_state.shape)
+    #                 # print(pred_state)
+
+    #             # print(f"Eval forward: states {states.shape}, actions {actions.shape}")
+    #             print(f"-----------\nEpoch {epoch}")
+
+    #             pred_ret = 0
+    #             true_ret = 0
+
+    #             observations_ = []
+    #             actions_ = []
+    #             next_observations_ = []
+    #             rewards_ = []
+    #             achieved_rets_ = [] # The total reward that has achieved, used to compute rtg
+    #             # frozen_noise = diffusion_policy.sample_init_noise() # noise for action sampling
+    #             goal = np.array([[0]], dtype=np.float32)
+    #             for h in range(args.horizon):
+    #                 timestep = torch.tensor(h).to(device) # scalar
+    #                 observations_.append(deepcopy(pred_state))
+    #                 achieved_rets_.append(deepcopy(pred_ret))
+
+    #                 # support_actions, support_probs = behavior_model(pred_state.unsqueeze(0).to(device)) # (1, n_support, action_dim), (1,n_support)
+    #                 if use_pred:
+    #                     action = diffusion_policy.select_action(pred_state, goal)
+    #                 else:
+    #                     action = diffusion_policy.select_action(true_state[None, :], goal)
+    #                 # sample_idx = torch.multinomial(support_probs, num_samples=1).squeeze() # scalar
+    #                 # action = support_actions[0,sample_idx,:] # (action_dim)
+    #                 # action = sample_from_supports(support_actions.squeeze(0), support_probs.squeeze(0)).detach().cpu().numpy()
+    #                 # print(action)
+    #                 # print(pred_state.shape, action.shape)
+    #                 if use_pred:
+    #                     pred_next_state, pred_reward, _, _ = dynamics.step(pred_state, action) # (state_dim), (1)
+    #                 else:
+    #                     pred_next_state, pred_reward, _, _ = dynamics.step(true_state[None, :], action) # (state_dim), (1)
+    #                 true_next_state, true_reward, terminated ,info = env.step(action.squeeze(0))
+    #                 # pred_next_state = pred_next_state.squeeze(0) # (state_dim)
+    #                 # pred_reward = pred_reward.squeeze() # scalar
+    #                 # print(pred_next_state.shape, pred_reward.shape)
+    #                 # Observe next states, rewards,
+    #                 # next_state, reward, terminated, _, _ = env.step(action) # array (state_dim), scalar
+    #                 # if hasattr(env, 'get_true_observation'): # For pointmaze
+    #                 #     next_state = env.get_true_observation(next_state)
+    #                 # next_state = torch.from_numpy(next_state) # (state_dim)
+    #                 actions_.append(deepcopy(action))
+    #                 # next_observations_.append(deepcopy(pred_next_state))
+    #                 # rewards_.append(deepcopy(pred_reward))
+    #                 print("-----------------------")
+    #                 print(f"Step {h}, action {action}")
+    #                 print(f"True reward {true_reward}, Predicted reward {pred_reward}")
+    #                 print(info)
+    #                 print(f"True state {true_next_state}, Predicted state {pred_next_state}")
+    #                 print(f"State difference {np.linalg.norm(pred_next_state - true_next_state)} \n")
+    #                 print("-----------------------\n")
+    #                 # Calculate return
+    #                 # ret += reward
+    #                 pred_ret += pred_reward
+    #                 true_ret += true_reward
+                    
+    #                 # Update states, actions, rtgs, timesteps
+    #                 # true_state = next_state # (state_dim)
+    #                 pred_state = pred_next_state.reshape(pred_state.shape)
+    #                 true_state = true_next_state.reshape(true_state.shape)
+
+    #                 # Update timesteps
+
+    #                 if terminated: # Already reached goal, the rest steps get reward 1, break
+    #                 #     ret += args.horizon - 1 - h
+    #                 #     pred_ret += args.horizon - 1 -h
+    #                     # print(f"Epoch {epoch}, true total return {true_ret}")
+    #                     break
+                    
+    #             # print(f"Epoch {epoch}, true total return {true_ret}")
+    #             if true_ret >= 1:
+    #                 valid_cnt += 1
+
+    #             if pred_ret >= 1:
+    #                 pred_cnt += 1
+    #             print(f"Epoch {epoch}, true total return {true_ret}, predicted {pred_ret}")
+        
+    #     print(f"Collected {valid_cnt} out of {args.rollout_epochs-start_epoch} trajectories, predicted {pred_cnt}")
+    #     return trajs
 
     def test_rollout(use_pred = False):
         '''
@@ -542,11 +658,9 @@ def train(args=get_args()):
 
     # Get rollout_trajs
     env.reset(seed=args.seed)
-    test_rollout(True)
-    env.reset(seed=args.seed)
     test_rollout(False)
     env.reset(seed=args.seed)
-    test_rollout_onestep()
+    test_rollout(True)
 
 
 if __name__ == "__main__":

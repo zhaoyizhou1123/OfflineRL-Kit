@@ -449,7 +449,10 @@ class SimpleDiffusionPolicy(ConditionalDiffusionModel):
         actions = batch['actions'].type(torch.float32).to(self.device)
         rtgs = batch['rtgs']
         rtgs = rtgs.reshape(rtgs.shape[0], -1).type(torch.float32).to(self.device)
-        weights = batch['weights'].type(torch.float32).to(self.device) # (batch, )
+        if 'weights' in batch:
+            weights = batch['weights'].type(torch.float32).to(self.device) # (batch, )
+        else:
+            weights = None
 
         return super().learn(actions, {"obs": obss, "feat": rtgs}, weights)
 
@@ -461,7 +464,10 @@ class SimpleDiffusionPolicy(ConditionalDiffusionModel):
         actions = batch['actions'].type(torch.float32).to(self.device)
         rtgs = batch['rtgs']
         rtgs = rtgs.reshape(rtgs.shape[0], -1).type(torch.float32).to(self.device)
-        weights = batch['weights'].type(torch.float32).to(self.device) # (batch, )
+        if 'weights' in batch:
+            weights = batch['weights'].type(torch.float32).to(self.device) # (batch, )
+        else:
+            weights = None
 
         return super().validate(actions, {"obs": obss, "feat": rtgs}, weights)
 

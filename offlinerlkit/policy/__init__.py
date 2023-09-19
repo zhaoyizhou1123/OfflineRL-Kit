@@ -19,6 +19,7 @@ from offlinerlkit.policy.model_based.combo import COMBOPolicy
 from offlinerlkit.policy.others.diffusion import DiffusionBC
 from offlinerlkit.policy.others.simple_diffusion import SimpleDiffusionPolicy
 from offlinerlkit.policy.others.autoregressive import AutoregressivePolicy
+from offlinerlkit.policy.others.autoregressive_categorical import AutoregressiveCategoricalPolicy
 from offlinerlkit.policy.rcsl.rcsl_gauss import RcslGaussianPolicy
 from offlinerlkit.policy.rcsl.rcsl import RcslPolicy
 
@@ -39,5 +40,6 @@ __all__ = [
     "SimpleDiffusionPolicy",
     "RcslPolicy",
     "RcslGaussianPolicy",
-    "AutoregressivePolicy"
+    "AutoregressivePolicy",
+    "AutoregressiveCategoricalPolicy"
 ]

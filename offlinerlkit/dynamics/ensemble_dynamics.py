@@ -42,7 +42,7 @@ class EnsembleDynamics(BaseDynamics):
         mean, logvar = self.model(obs_act)
         mean = mean.cpu().numpy()
         logvar = logvar.cpu().numpy()
-        mean[..., :-1] += obs
+        mean[..., :-1] += obs # We estimated delta_obs
         std = np.sqrt(np.exp(logvar))
 
         ensemble_samples = (mean + np.random.normal(size=mean.shape) * std).astype(np.float32)
@@ -103,6 +103,7 @@ class EnsembleDynamics(BaseDynamics):
         actions = data["actions"]
         next_obss = data["next_observations"]
         rewards = data["rewards"]
+        rewards = rewards.reshape(rewards.shape[0], -1)
         delta_obss = next_obss - obss
         inputs = np.concatenate((obss, actions), axis=-1)
         targets = np.concatenate((delta_obss, rewards), axis=-1)

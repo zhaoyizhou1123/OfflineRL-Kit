@@ -1,38 +1,40 @@
+# AutoregressiveDynamics
+
 import argparse
 import os
 import sys
 import random
 
 import gym
-# import d4rl
+import d4rl
 
 import numpy as np
 import torch
 
 import pickle
 from copy import deepcopy
-from typing import Dict, Tuple, Union
+from typing import Dict, Tuple
 import roboverse
 from collections import defaultdict
 
 
 # import __init__
 from offlinerlkit.nets import MLP
-from offlinerlkit.modules import ActorProb, Critic, TanhDiagGaussian, EnsembleDynamicsModel, RcslModule
-from offlinerlkit.dynamics import BaseDynamics, EnsembleDynamics
+from offlinerlkit.modules import ActorProb, Critic, TanhDiagGaussian, AutoregressiveDynamicsModel, RcslModule, EnsembleDynamicsModel
+from offlinerlkit.dynamics import BaseDynamics, AutoregressiveDynamics, EnsembleDynamics
 from offlinerlkit.utils.scaler import StandardScaler
 from offlinerlkit.utils.termination_fns import get_termination_fn
 from offlinerlkit.utils.load_dataset import qlearning_dataset, traj_rtg_datasets
 from offlinerlkit.utils.config import Config
 from offlinerlkit.utils.dataset import ObsActDataset
-from offlinerlkit.utils.pickplace_utils import SimpleObsWrapper, get_pickplace_dataset, set_weight_dict, merge_dataset
+from offlinerlkit.utils.pickplace_utils import SimpleObsWrapper, get_pickplace_dataset
 from offlinerlkit.buffer import ReplayBuffer
 from offlinerlkit.utils.logger import Logger, make_log_dirs
 from offlinerlkit.utils.diffusion_logger import setup_logger
 from offlinerlkit.policy_trainer import RcslPolicyTrainer, DiffusionPolicyTrainer, RcslPolicyTrainer_v2
 from offlinerlkit.utils.trajectory import Trajectory
 from offlinerlkit.utils.none_or_str import none_or_str
-from offlinerlkit.policy import DiffusionBC, RcslPolicy, SimpleDiffusionPolicy
+from offlinerlkit.policy import DiffusionBC, RcslPolicy, SimpleDiffusionPolicy, AutoregressivePolicy
 from offlinerlkit.env.linearq import Linearq
 
 # from rvs.policies import RvS
@@ -59,8 +61,8 @@ walker2d-medium-expert-v2: rollout-length=1, cql-weight=5.0
 def get_args():
     parser = argparse.ArgumentParser()
     # general
-    parser.add_argument("--algo-name", type=str, default="onlinercsl")
-    parser.add_argument("--task", type=str, default="pickplace", help="pickplace, pickplace_easy") # Self-constructed environment
+    parser.add_argument("--algo-name", type=str, default="mbrcsl_regress")
+    parser.add_argument("--task", type=str, default="pickplace_easy", help="pickplace, pickplace_easy") # Self-constructed environment
     parser.add_argument("--dataset", type=none_or_str, default=None, help="../D4RL/dataset/halfcheetah/output.hdf5") # Self-constructed environment
     parser.add_argument('--debug',action='store_true', help='Print debuuging info if true')
     parser.add_argument("--seed", type=int, default=0)
@@ -95,17 +97,17 @@ def get_args():
 
     # Behavior policy (diffusion)
     parser.add_argument("--behavior_epoch", type=int, default=30)
-    parser.add_argument("--num_diffusion_iters", type=int, default=10, help="Number of diffusion steps")
+    parser.add_argument("--num_diffusion_iters", type=int, default=5, help="Number of diffusion steps")
     parser.add_argument('--behavior_batch', type=int, default=256)
     parser.add_argument('--load_diffusion_path', type=none_or_str, default=None)
     parser.add_argument('--diffusion_seed', type=str, default='0', help="Distinguish runs for diffusion policy, not random seed")
-    parser.add_argument('--task_weight', type=float, default=1.)
+    parser.add_argument('--task_weight', type=float, default=1.5)
 
     # Rollout 
     parser.add_argument('--rollout_ckpt_path', type=none_or_str, default=None, help="./checkpoint/maze2_smd_stable, file path, used to load/store rollout trajs" )
-    parser.add_argument('--rollout_epochs', type=int, default=1000, help="Max number of epochs to rollout the policy")
-    parser.add_argument('--num_need_traj', type=int, default=100, help="Needed valid trajs in rollout")
-    parser.add_argument("--rollout-batch", type=int, default=1, help="Number of trajs to be sampled at one time")
+    parser.add_argument('--rollout_epochs', type=int, default=100, help="Max number of epochs to rollout the policy")
+    parser.add_argument('--num_need_traj', type=int, default=1000, help="Needed valid trajs in rollout")
+    parser.add_argument("--rollout-batch", type=int, default=256, help="Number of trajs to be sampled at one time")
 
     # RCSL policy (mlp)
     parser.add_argument("--rcsl-hidden-dims", type=int, nargs='*', default=[200, 200, 200, 200])
@@ -119,9 +121,9 @@ def get_args():
 
     return parser.parse_args()
 
-def rollout_true(
+def rollout(
     init_obss: np.ndarray,
-    env: gym.vector.AsyncVectorEnv,
+    dynamics: AutoregressiveDynamics,
     rollout_policy: SimpleDiffusionPolicy,
     rollout_length: int
 ) -> Tuple[Dict[str, np.ndarray], Dict]:
@@ -142,17 +144,17 @@ def rollout_true(
     valid_idxs = np.arange(init_obss.shape[0]) # maintain current valid trajectory indexes
     returns = np.zeros(init_obss.shape[0]) # maintain return of each trajectory
     acc_returns = np.zeros(init_obss.shape[0]) # maintain accumulated return of each valid trajectory
+    max_rewards = np.zeros(init_obss.shape[0]) # maintain max reward seen in trajectory
 
     # rollout
-    # observations = init_obss
-    observations = env.reset()
+    observations = init_obss
 
     # frozen_noise = rollout_policy.sample_init_noise(init_obss.shape[0])
     goal = np.zeros((init_obss.shape[0],1), dtype = np.float32)
-    for t in range(rollout_length):
+    for _ in range(rollout_length):
         actions = rollout_policy.select_action(observations, goal)
-        next_observations, rewards, terminals, info = env.step(actions)
-        print(t, actions, next_observations, rewards)
+        next_observations, rewards, terminals, info = dynamics.step(observations, actions)
+        rewards = rewards.clip(0,1) # set rewards in [0,1]
         rollout_transitions["observations"].append(observations)
         rollout_transitions["next_observations"].append(next_observations)
         rollout_transitions["actions"].append(actions)
@@ -166,6 +168,7 @@ def rollout_true(
 
         # print(returns[valid_idxs].shape, rewards.shape)
         returns[valid_idxs] = returns[valid_idxs] + rewards.flatten() # Update return (for valid idxs only)
+        max_rewards[valid_idxs] = np.maximum(max_rewards[valid_idxs], rewards.flatten()) # Update max reward
         acc_returns = acc_returns + rewards.flatten()
 
         nonterm_mask = (~terminals).flatten()
@@ -188,85 +191,7 @@ def rollout_true(
     rollout_transitions["rtgs"] = rtgs[..., None] # (N,1)
 
     return rollout_transitions, \
-        {"num_transitions": num_transitions, "reward_mean": rewards_arr.mean(), "returns": returns}
-
-def rollout_true_simple(
-    init_obss: np.ndarray,
-    env: gym.vector.AsyncVectorEnv,
-    rollout_policy: SimpleDiffusionPolicy,
-    rollout_length: int
-) -> Tuple[Dict[str, np.ndarray], Dict]:
-    '''
-    Don't consider terminal
-    Sample a batch of trajectories at the same time.
-    Output rollout_transitions contain keys:
-    obss,
-    next_obss,
-    actions
-    rewards, (N,1)
-    rtgs, (N,1)
-    traj_idxs, (N)
-    '''
-
-    num_transitions = 0
-    rewards_arr = np.array([])
-    rollout_transitions = defaultdict(list)
-    valid_idxs = np.arange(init_obss.shape[0]) # maintain current valid trajectory indexes
-    returns = np.zeros(init_obss.shape[0]) # maintain return of each trajectory
-    acc_returns = np.zeros(init_obss.shape[0]) # maintain accumulated return of each valid trajectory
-
-    # rollout
-    # observations = init_obss
-    observations = env.reset()
-
-    # frozen_noise = rollout_policy.sample_init_noise(init_obss.shape[0])
-    goal = np.zeros((init_obss.shape[0],1), dtype = np.float32)
-    for t in range(rollout_length):
-        actions = rollout_policy.select_action(observations, goal)
-        next_observations, rewards, terminals, info = env.step(actions)
-        print(t, actions[:,0], next_observations[:,0], rewards)
-        rollout_transitions["observations"].append(observations)
-        rollout_transitions["next_observations"].append(next_observations)
-        rollout_transitions["actions"].append(actions)
-        rollout_transitions["rewards"].append(rewards)
-        rollout_transitions["terminals"].append(terminals)
-        rollout_transitions["traj_idxs"].append(valid_idxs)
-        rollout_transitions["acc_rets"].append(acc_returns)
-
-        num_transitions += len(observations)
-        rewards_arr = np.append(rewards_arr, rewards.flatten())
-
-        # print(returns[valid_idxs].shape, rewards.shape)
-        returns = returns + rewards.flatten() # Update return (for valid idxs only)
-        acc_returns = acc_returns + rewards.flatten()
-
-        # nonterm_mask = (~terminals).flatten()
-        # if nonterm_mask.sum() == 0:
-        #     break
-
-        # observations = next_observations[nonterm_mask] # Only keep trajs that have not terminated
-        observations = next_observations
-        # valid_idxs = valid_idxs[nonterm_mask] # update unterminated traj indexs
-        # acc_returns = acc_returns[nonterm_mask] # Only keep acc_ret of trajs that have not terminated
-        # goal = goal[nonterm_mask]
-    
-    for k, v in rollout_transitions.items():
-        rollout_transitions[k] = np.concatenate(v, axis=0)
-
-    # Compute rtgs.Keep dense return
-    # returns = (returns >= 1).astype(np.float32) # return >=1 means success, 1; otherwise 0
-    traj_idxs = rollout_transitions["traj_idxs"]
-    rtgs = returns[traj_idxs] - rollout_transitions["acc_rets"]
-    # rtgs = returns[traj_idxs] 
-    rollout_transitions["rtgs"] = rtgs[..., None] # (N,1)
-
-    return rollout_transitions, \
-        {"num_transitions": num_transitions, "reward_mean": rewards_arr.mean(), "returns": returns}
-
-def reset_multi(env, repeat):
-    for _ in range(repeat):
-        env.reset()
-    return env
+        {"num_transitions": num_transitions, "reward_mean": rewards_arr.mean(), "returns": returns, "max_rewards": max_rewards}
 
 def train(args=get_args()):
     print(args)
@@ -284,27 +209,21 @@ def train(args=get_args()):
         if args.task == 'pickplace':
             env = roboverse.make('Widow250PickTray-v0')
             env = SimpleObsWrapper(env)
-            v_env = gym.vector.SyncVectorEnv([lambda: reset_multi(SimpleObsWrapper(roboverse.make('Widow250PickTray-v0')), t ) for t in range(args.rollout_batch)])
+            # v_env = gym.vector.SyncVectorEnv([lambda: SimpleObsWrapper(roboverse.make('Widow250PickTray-v0')), t ) for t in range(args.rollout_batch)])
         else:
             print(f"Env: easy")
             env = roboverse.make('Widow250PickTrayEasy-v0')
             env = SimpleObsWrapper(env)
-            v_env = gym.vector.SyncVectorEnv([lambda: reset_multi(SimpleObsWrapper(roboverse.make('Widow250PickTrayEasy-v0')), t ) for t in range(args.rollout_batch)])
-        # env2 = gym.vector.make('Widow250PickTray-v0', num_envs = args.eval_episodes)
-        # print(env2.reset())
-        # env2 = SimpleObsWrapper(env2)
+            # v_env = gym.vector.SyncVectorEnv([lambda: reset_multi(SimpleObsWrapper(roboverse.make('Widow250PickTrayEasy-v0')), t ) for t in range(args.rollout_batch)])
         obs_space = env.observation_space
         args.obs_shape = obs_space.shape
         obs_dim = np.prod(args.obs_shape)
         args.action_shape = env.action_space.shape
         action_dim = np.prod(args.action_shape)
+
+        offline_dataset, init_obss_dataset = get_pickplace_dataset(args.data_dir, task_weight=args.task_weight)
         # args.max_action = env.action_space.high[0]
-        # print(args.action_dim, type(args.action_dim))
-
-        dataset, init_obss_dataset = get_pickplace_dataset(args.data_dir)
-    else:
-        raise NotImplementedError
-
+        # print(args.action_dim, type(args.action_dim
 
     # seed
     random.seed(args.seed)
@@ -316,7 +235,8 @@ def train(args=get_args()):
 
     # print(f"dynamics_hidden_dims = {args.dynamics_hidden_dims}")
     # log
-    log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part = "dynamics")
+    log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part = "dynamics", record_params=['eval_episodes', 'task_weight'])
+    print(f"Logging dynamics to {log_dirs}")
     # key: output file name, value: output handler type
     output_config = {
         "consoleout_backup": "stdout",
@@ -348,7 +268,6 @@ def train(args=get_args()):
         scaler,
         termination_fn
     )
-
     # create rollout policy
     diffusion_policy = SimpleDiffusionPolicy(
         obs_shape = args.obs_shape,
@@ -361,7 +280,8 @@ def train(args=get_args()):
 
     diff_lr_scheduler = diffusion_policy.get_lr_scheduler()
 
-    diff_log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part="diffusion")
+    diff_log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part="diffusion", record_params=['eval_episodes', 'task_weight'])
+    print(f"Logging diffusion to {diff_log_dirs}")
     # key: output file name, value: output handler type
     diff_output_config = {
         "consoleout_backup": "stdout",
@@ -374,7 +294,7 @@ def train(args=get_args()):
 
     diff_policy_trainer = DiffusionPolicyTrainer(
         policy = diffusion_policy,
-        offline_dataset = dataset,
+        offline_dataset = offline_dataset,
         logger = diff_logger,
         seed = args.seed,
         epoch = args.behavior_epoch,
@@ -385,33 +305,18 @@ def train(args=get_args()):
         has_terminal = False,
         # device = args.device
     )
-
-    rcsl_backbone = MLP(input_dim=obs_dim+1, hidden_dims=args.rcsl_hidden_dims, output_dim=action_dim)
-
-    rcsl_module = RcslModule(rcsl_backbone, args.device)
-    rcsl_optim = torch.optim.Adam(rcsl_module.parameters(), lr=args.rcsl_lr)
-
-    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(rcsl_optim, args.rcsl_epoch)
-
-    rcsl_policy = RcslPolicy(
-        dynamics = None,
-        rollout_policy = None,
-        rcsl = rcsl_module,
-        rcsl_optim = rcsl_optim,
-        device = args.device
-    )
     
 
-    # create buffer
-    offline_buffer = ReplayBuffer(
-        buffer_size=len(dataset["observations"]),
-        obs_shape=args.obs_shape,
-        obs_dtype=np.float32,
-        action_dim=action_dim,
-        action_dtype=np.float32,
-        device=args.device
-    )
-    offline_buffer.load_dataset(dataset)
+    # # create buffer
+    # offline_buffer = ReplayBuffer(
+    #     buffer_size=len(dataset["observations"]),
+    #     obs_shape=args.obs_shape,
+    #     obs_dtype=np.float32,
+    #     action_dim=action_dim,
+    #     action_dtype=np.float32,
+    #     device=args.device
+    # )
+    # offline_buffer.load_dataset(dataset)
 
 
     # Training helper functions
@@ -424,7 +329,7 @@ def train(args=get_args()):
             dynamics.load(args.load_dynamics_path)
         else: 
             print(f"Train dynamics")
-            dynamics.train(offline_buffer.sample_all(), logger, max_epochs_since_update=5)
+            dynamics.train(offline_dataset, logger, max_epochs_since_update=5)
         
     # Finish get_rollout_policy
     def get_rollout_policy():
@@ -444,7 +349,7 @@ def train(args=get_args()):
             diff_policy_trainer.train() # save checkpoint periodically
             # diffusion_policy.save_checkpoint(epoch=None) # Save final model
 
-    def get_rollout_trajs(logger: Logger, threshold = 2) -> Tuple[Dict[str, np.ndarray], float]:
+    def get_rollout_trajs(logger: Logger, threshold = 0.7) -> Tuple[Dict[str, np.ndarray], float]:
         '''
         Rollout trajectories or load existing trajectories.
         If rollout, call `get_rollout_policy()` and `get_dynamics()` first to get rollout policy and dynamics
@@ -467,8 +372,8 @@ def train(args=get_args()):
         start_epoch = 0 # Default starting epoch
         returns_all = []
         if args.rollout_ckpt_path is not None:
-            print(f"Will load rollout trajectories from dir {args.rollout_ckpt_path}")
-            # os.makedirs(args.rollout_ckpt_path, exist_ok=True)
+            print(f"Will save rollout trajectories to dir {args.rollout_ckpt_path}")
+            os.makedirs(args.rollout_ckpt_path, exist_ok=True)
             data_path = os.path.join(args.rollout_ckpt_path, "rollout.dat")
             if os.path.exists(data_path): # Load ckpt_data
                 ckpt_dict = pickle.load(open(data_path,"rb")) # checkpoint in dict type
@@ -483,26 +388,22 @@ def train(args=get_args()):
                     print(f"Checkpoint trajectories are enough. Skip rollout procedure.")
                     return rollout_data_all, max(returns_all)
         # Still need training, get dynamics and rollout policy
-        # get_dynamics()
-        # get_rollout_policy()
+        get_dynamics()
+        get_rollout_policy()
 
         with torch.no_grad():
             for epoch in range(start_epoch, args.rollout_epochs):
-                # batch_indexs = np.random.randint(0, init_obss_dataset.shape[0], size=args.rollout_batch)
-                # init_obss = init_obss_dataset[batch_indexs]
-                # reset_multi(v_env, args.rollout_batch)
-                init_obss = v_env.reset()
-                print(init_obss[:,0])
-                # rollout_data, rollout_info = rollout_true(init_obss, v_env, diffusion_policy, args.horizon)
-                rollout_data, rollout_info = rollout_true_simple(init_obss, v_env, diffusion_policy, args.horizon)
+                batch_indexs = np.random.randint(0, init_obss_dataset.shape[0], size=args.rollout_batch)
+                init_obss = init_obss_dataset[batch_indexs]
+                rollout_data, rollout_info = rollout(init_obss, dynamics, diffusion_policy, args.horizon)
                     # print(pred_state)
-                print(rollout_info)
 
                 # Only keep trajs with returns > threshold
                 returns = rollout_info['returns']
                 # print(f"Get returns: {returns}")
-                assert returns.shape[0] == args.rollout_batch
-                valid_trajs = np.arange(args.rollout_batch)[rollout_info['returns'] > threshold] # np.array, indexs of all valid trajs
+                # assert returns.shape[0] == args.rollout_batch
+                max_rewards = rollout_info['max_rewards']
+                valid_trajs = np.arange(args.rollout_batch)[max_rewards > threshold] # np.array, indexs of all valid trajs
 
                 valid_data_idxs = [rollout_data['traj_idxs'][i] in valid_trajs for i in range(rollout_data['traj_idxs'].shape[0])]
                 for k in rollout_data:
@@ -538,7 +439,8 @@ def train(args=get_args()):
             
         return rollout_data_all, max(returns_all)
 
-    rollout_save_dir = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part="rollout_true")
+    rollout_save_dir = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part="rollout", record_params=['eval_episodes', 'task_weight'])
+    print(f"Logging diffusion rollout to {rollout_save_dir}")
     rollout_logger = Logger(rollout_save_dir, {"consoleout_backup": "stdout"})
     rollout_logger.log_hyperparameters(vars(args))
     rollout_dataset, max_offline_return = get_rollout_trajs(rollout_logger)
@@ -546,75 +448,33 @@ def train(args=get_args()):
 
     # train
 
-    # rcsl_log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part='rcsl')
-    # # key: output file name, value: output handler type
-    # rcsl_output_config = {
-    #     "consoleout_backup": "stdout",
-    #     "policy_training_progress": "csv",
-    #     "dynamics_training_progress": "csv",
-    #     "tb": "tensorboard"
-    # }
-    # rcsl_logger = Logger(rcsl_log_dirs, rcsl_output_config)
-    # rcsl_logger.log_hyperparameters(vars(args))
-
-    # policy_trainer = RcslPolicyTrainer(
-    #     policy = rcsl_policy,
-    #     eval_env = env,
-    #     offline_dataset = rollout_dataset,
-    #     rollout_dataset = None,
-    #     goal = max_offline_return,
-    #     logger = rcsl_logger,
-    #     seed = args.seed,
-    #     epoch = args.rcsl_epoch,
-    #     step_per_epoch = args.rcsl_step_per_epoch,
-    #     batch_size = args.rcsl_batch,
-    #     offline_ratio = 1.,
-    #     lr_scheduler = lr_scheduler,
-    #     horizon = args.horizon,
-    #     num_workers = args.num_workers,
-    #     eval_episodes=args.eval_episodes
-    #     # device = args.device
-    # )
-    
-    # policy_trainer.train()
-
-    # Test diffusion policy trainer
-    diffusion_rcsl_policy = SimpleDiffusionPolicy(
-        obs_shape = args.obs_shape,
-        act_shape= args.action_shape,
-        feature_dim = 1,
-        num_training_steps = args.behavior_epoch,
-        num_diffusion_steps = args.num_diffusion_iters,
+    rcsl_policy = AutoregressivePolicy(
+        obs_dim=obs_dim,
+        act_dim = action_dim,
+        hidden_dims=args.rcsl_hidden_dims,
+        lr = args.rcsl_lr,
         device = args.device
     )
-
-    diff_lr_scheduler = diffusion_rcsl_policy.get_lr_scheduler()
-    rcsl_log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part='rcsl_diff', record_params=['eval_episodes'])
+    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(rcsl_policy.rcsl_optim, args.rcsl_epoch)
+    
+    task_name = args.task
+    rcsl_log_dirs = make_log_dirs(task_name, args.algo_name, args.seed, vars(args), part='rcsl_regress', record_params=['eval_episodes', 'task_weight'])
     # key: output file name, value: output handler type
+    print(f"Logging autoregressive gaussian rcsl to {rcsl_log_dirs}")
     rcsl_output_config = {
         "consoleout_backup": "stdout",
         "policy_training_progress": "csv",
-        "dynamics_training_progress": "csv",
         "tb": "tensorboard"
     }
     rcsl_logger = Logger(rcsl_log_dirs, rcsl_output_config)
     rcsl_logger.log_hyperparameters(vars(args))
 
-    get_rollout_policy() # Load diffusion policy
-
-    # Mix task datasets and weight
-    set_weight_dict(rollout_dataset, 5.)
-    task_dataset, _ = get_pickplace_dataset(args.data_dir, task_weight=1., set_type='task')
-    rcsl_dataset = merge_dataset([rollout_dataset, task_dataset])
-
-
     policy_trainer = RcslPolicyTrainer_v2(
-        policy = diffusion_policy,
+        policy = rcsl_policy,
         eval_env = env,
-        # eval_env2 = v_env,
-        offline_dataset = rcsl_dataset,
+        offline_dataset = rollout_dataset,
         rollout_dataset = None,
-        goal = 15.,
+        goal = 0, # AutoregressivePolicy is not return-conditioned
         logger = rcsl_logger,
         seed = args.seed,
         epoch = args.rcsl_epoch,
@@ -624,28 +484,11 @@ def train(args=get_args()):
         lr_scheduler = lr_scheduler,
         horizon = args.horizon,
         num_workers = args.num_workers,
-        has_terminal = False,
         eval_episodes = args.eval_episodes
         # device = args.device
     )
-    
-    # print(f"Start evaluate")
-    policy_trainer.train(holdout_ratio=0.1)
 
-    # create buffer
-    # offline_buffer = ReplayBuffer(
-    #     buffer_size=len(dataset["observations"]),
-    #     obs_shape=args.obs_shape,
-    #     obs_dtype=np.float32,
-    #     action_dim=args.action_dim,
-    #     action_dtype=np.float32,
-    #     device=args.device
-    # )
-    # offline_buffer.load_dataset(dataset)
-
-    # train
-
-    # Creat policy trainer
+    policy_trainer.train()
 
 
 if __name__ == "__main__":
