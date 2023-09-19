@@ -101,7 +101,9 @@ def get_args():
     parser.add_argument('--behavior_batch', type=int, default=256)
     parser.add_argument('--load_diffusion_path', type=none_or_str, default=None)
     parser.add_argument('--diffusion_seed', type=str, default='0', help="Distinguish runs for diffusion policy, not random seed")
-    parser.add_argument('--task_weight', type=float, default=1.5)
+    parser.add_argument('--task_weight', type=float, default=1.5, help="Weight on task data when training diffusion policy")
+    parser.add_argument('--sample_ratio', type=float, default=0.5, help="Use (sample_ratio * num_total_data) data to train diffusion policy")
+    
 
     # Rollout 
     parser.add_argument('--rollout_ckpt_path', type=none_or_str, default=None, help="./checkpoint/maze2_smd_stable, file path, used to load/store rollout trajs" )
@@ -193,8 +195,98 @@ def rollout(
     return rollout_transitions, \
         {"num_transitions": num_transitions, "reward_mean": rewards_arr.mean(), "returns": returns, "max_rewards": max_rewards}
 
+def rollout_simple(
+    init_obss: np.ndarray,
+    dynamics: AutoregressiveDynamics,
+    rollout_policy: SimpleDiffusionPolicy,
+    rollout_length: int
+) -> Tuple[Dict[str, np.ndarray], Dict]:
+    '''
+    Only serves for non-terminal cases
+    Sample a batch of trajectories at the same time.
+    Output rollout_transitions contain keys:
+    obss,
+    next_obss,
+    actions
+    rewards, (N,1)
+    rtgs, (N,1)
+    traj_idxs, (N)
+    '''
+
+    num_transitions = 0
+    rewards_arr = np.array([])
+    rollout_transitions = defaultdict(list)
+    batch_size = init_obss.shape[0]
+    valid_idxs = np.arange(init_obss.shape[0]) # maintain current valid trajectory indexes
+    returns = np.zeros(init_obss.shape[0]) # maintain return of each trajectory
+    acc_returns = np.zeros(init_obss.shape[0]) # maintain accumulated return of each valid trajectory
+    max_rewards = np.zeros(init_obss.shape[0]) # maintain max reward seen in trajectory
+    rewards_full = np.zeros((init_obss.shape[0], rollout_length)) # full rewards (batch, H)
+
+    # rollout
+    observations = init_obss
+
+    # frozen_noise = rollout_policy.sample_init_noise(init_obss.shape[0])
+    goal = np.zeros((init_obss.shape[0],1), dtype = np.float32)
+    for t in range(rollout_length):
+        actions = rollout_policy.select_action(observations, goal)
+        next_observations, rewards, terminals, info = dynamics.step(observations, actions)
+        rewards = rewards.clip(0,1) # set rewards in [0,1]
+        rollout_transitions["observations"].append(observations)
+        rollout_transitions["next_observations"].append(next_observations)
+        rollout_transitions["actions"].append(actions)
+        rollout_transitions["rewards"].append(rewards)
+        rollout_transitions["terminals"].append(terminals)
+        rollout_transitions["traj_idxs"].append(valid_idxs)
+        rollout_transitions["acc_rets"].append(acc_returns)
+
+        rewards = rewards.reshape(batch_size) # (B)
+        rewards_full[:, t] = rewards
+
+
+        num_transitions += len(observations)
+        rewards_arr = np.append(rewards_arr, rewards.flatten())
+
+        # print(returns[valid_idxs].shape, rewards.shape)
+        # returns[valid_idxs] = returns[valid_idxs] + rewards.flatten() # Update return (for valid idxs only)
+        returns = returns + rewards.flatten() # Update return (for valid idxs only)
+        # max_rewards[valid_idxs] = np.maximum(max_rewards[valid_idxs], rewards.flatten()) # Update max reward
+        max_rewards = np.maximum(max_rewards, rewards.flatten()) # Update max reward
+        acc_returns = acc_returns + rewards.flatten()
+
+        # nonterm_mask = (~terminals).flatten()
+        # if nonterm_mask.sum() == 0:
+        #     break
+
+        # observations = next_observations[nonterm_mask] # Only keep trajs that have not terminated
+        # valid_idxs = valid_idxs[nonterm_mask] # update unterminated traj indexs
+        # acc_returns = acc_returns[nonterm_mask] # Only keep acc_ret of trajs that have not terminated
+        # goal = goal[nonterm_mask]
+    
+    for k, v in rollout_transitions.items():
+        rollout_transitions[k] = np.concatenate(v, axis=0)
+
+    # Compute rtgs.Keep dense return
+    # returns = (returns >= 1).astype(np.float32) # return >=1 means success, 1; otherwise 0
+    traj_idxs = rollout_transitions["traj_idxs"]
+    rtgs = returns[traj_idxs] - rollout_transitions["acc_rets"]
+    # rtgs = returns[traj_idxs] 
+    rollout_transitions["rtgs"] = rtgs[..., None] # (N,1)
+
+    return rollout_transitions, \
+        {"num_transitions": num_transitions, "reward_mean": rewards_arr.mean(), "returns": returns, "max_rewards": max_rewards, "rewards_full": rewards_full}
+
+
 def train(args=get_args()):
     print(args)
+
+    # seed
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+    torch.backends.cudnn.deterministic = True
+    # env.reset(seed = args.seed)
 
     # create env and dataset
     if args.task == 'pickplace' or args.task == 'pickplace_easy':
@@ -221,21 +313,15 @@ def train(args=get_args()):
         args.action_shape = env.action_space.shape
         action_dim = np.prod(args.action_shape)
 
-        offline_dataset, init_obss_dataset = get_pickplace_dataset(args.data_dir, task_weight=args.task_weight)
+        # offline_dataset, init_obss_dataset = get_pickplace_dataset(args.data_dir, task_weight=args.task_weight)
+        diff_dataset, _ = get_pickplace_dataset(args.data_dir, sample_ratio =args.sample_ratio, task_weight=args.task_weight)
+        dyn_dataset, init_obss_dataset = get_pickplace_dataset(args.data_dir)
         # args.max_action = env.action_space.high[0]
         # print(args.action_dim, type(args.action_dim
 
-    # seed
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.cuda.manual_seed_all(args.seed)
-    torch.backends.cudnn.deterministic = True
-    env.reset(seed = args.seed)
-
     # print(f"dynamics_hidden_dims = {args.dynamics_hidden_dims}")
     # log
-    log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part = "dynamics", record_params=['eval_episodes', 'task_weight'])
+    log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part = "dynamics", record_params=['eval_episodes', 'task_weight', 'sample_ratio'])
     print(f"Logging dynamics to {log_dirs}")
     # key: output file name, value: output handler type
     output_config = {
@@ -280,7 +366,7 @@ def train(args=get_args()):
 
     diff_lr_scheduler = diffusion_policy.get_lr_scheduler()
 
-    diff_log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part="diffusion", record_params=['eval_episodes', 'task_weight'])
+    diff_log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part="diffusion", record_params=['eval_episodes', 'task_weight', 'sample_ratio'])
     print(f"Logging diffusion to {diff_log_dirs}")
     # key: output file name, value: output handler type
     diff_output_config = {
@@ -294,7 +380,7 @@ def train(args=get_args()):
 
     diff_policy_trainer = DiffusionPolicyTrainer(
         policy = diffusion_policy,
-        offline_dataset = offline_dataset,
+        offline_dataset = diff_dataset,
         logger = diff_logger,
         seed = args.seed,
         epoch = args.behavior_epoch,
@@ -329,7 +415,7 @@ def train(args=get_args()):
             dynamics.load(args.load_dynamics_path)
         else: 
             print(f"Train dynamics")
-            dynamics.train(offline_dataset, logger, max_epochs_since_update=5)
+            dynamics.train(dyn_dataset, logger, max_epochs_since_update=5)
         
     # Finish get_rollout_policy
     def get_rollout_policy():
@@ -349,7 +435,7 @@ def train(args=get_args()):
             diff_policy_trainer.train() # save checkpoint periodically
             # diffusion_policy.save_checkpoint(epoch=None) # Save final model
 
-    def get_rollout_trajs(logger: Logger, threshold = 0.7) -> Tuple[Dict[str, np.ndarray], float]:
+    def get_rollout_trajs(logger: Logger, threshold = 0.9) -> Tuple[Dict[str, np.ndarray], float]:
         '''
         Rollout trajectories or load existing trajectories.
         If rollout, call `get_rollout_policy()` and `get_dynamics()` first to get rollout policy and dynamics
@@ -395,15 +481,18 @@ def train(args=get_args()):
             for epoch in range(start_epoch, args.rollout_epochs):
                 batch_indexs = np.random.randint(0, init_obss_dataset.shape[0], size=args.rollout_batch)
                 init_obss = init_obss_dataset[batch_indexs]
-                rollout_data, rollout_info = rollout(init_obss, dynamics, diffusion_policy, args.horizon)
+                # rollout_data, rollout_info = rollout(init_obss, dynamics, diffusion_policy, args.horizon)
+                rollout_data, rollout_info = rollout_simple(init_obss, dynamics, diffusion_policy, args.horizon)
                     # print(pred_state)
 
                 # Only keep trajs with returns > threshold
                 returns = rollout_info['returns']
                 # print(f"Get returns: {returns}")
                 # assert returns.shape[0] == args.rollout_batch
-                max_rewards = rollout_info['max_rewards']
-                valid_trajs = np.arange(args.rollout_batch)[max_rewards > threshold] # np.array, indexs of all valid trajs
+                # max_rewards = rollout_info['max_rewards']
+                rewards_full = rollout_info['rewards_full']
+                min_last_rewards = np.min(rewards_full[:, -5:], axis = -1) # (B,), final steps must be large
+                valid_trajs = np.arange(args.rollout_batch)[min_last_rewards > threshold] # np.array, indexs of all valid trajs
 
                 valid_data_idxs = [rollout_data['traj_idxs'][i] in valid_trajs for i in range(rollout_data['traj_idxs'].shape[0])]
                 for k in rollout_data:
@@ -439,7 +528,7 @@ def train(args=get_args()):
             
         return rollout_data_all, max(returns_all)
 
-    rollout_save_dir = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part="rollout", record_params=['eval_episodes', 'task_weight'])
+    rollout_save_dir = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part="rollout", record_params=['eval_episodes', 'task_weight', 'sample_ratio'])
     print(f"Logging diffusion rollout to {rollout_save_dir}")
     rollout_logger = Logger(rollout_save_dir, {"consoleout_backup": "stdout"})
     rollout_logger.log_hyperparameters(vars(args))
@@ -458,7 +547,7 @@ def train(args=get_args()):
     lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(rcsl_policy.rcsl_optim, args.rcsl_epoch)
     
     task_name = args.task
-    rcsl_log_dirs = make_log_dirs(task_name, args.algo_name, args.seed, vars(args), part='rcsl_regress', record_params=['eval_episodes', 'task_weight'])
+    rcsl_log_dirs = make_log_dirs(task_name, args.algo_name, args.seed, vars(args), part='rcsl_regress', record_params=['eval_episodes', 'task_weight', 'sample_ratio'])
     # key: output file name, value: output handler type
     print(f"Logging autoregressive gaussian rcsl to {rcsl_log_dirs}")
     rcsl_output_config = {

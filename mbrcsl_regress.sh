@@ -24,13 +24,27 @@ rollout_path=None
 #         --task_weight ${task_weight}
 # done
 
+for sample in 0.3 0.4 0.5
+do
 python run_example/pickplace/run_mbrcsl_pickplace_v2.py \
     --num_workers 4 \
     --task 'pickplace_easy' --horizon 40 \
     --load-dynamics-path ${dyn_path} \
-    --load_diffusion_path ${diff_path} --behavior_epoch 35 \
+    --load_diffusion_path ${diff_path} --behavior_epoch 30 --sample_ratio ${sample} \
     --rollout_ckpt_path ${rollout_path} --rollout_epochs 30000 --num_need_traj 2500 --rollout-batch 1 \
     --eval_episodes 50  --rcsl-epoch 75
+done
+
+# for sample in 0.3
+# do
+# python run_example/pickplace/run_mbrcsl_pickplace_v2.py \
+#     --num_workers 4 \
+#     --task 'pickplace_easy' --horizon 40 \
+#     --load-dynamics-path ${dyn_path} \
+#     --load_diffusion_path ${diff_path} --behavior_epoch 1 --sample_ratio ${sample} \
+#     --rollout_ckpt_path ${rollout_path} --rollout_epochs 30000 --num_need_traj 2500 --rollout-batch 1 \
+#     --eval_episodes 50  --rcsl-epoch 75
+# done
 
 # d_path="log/maze/combo/seed_1&timestamp_23-0809-143727/model"
 # algo=mopo
