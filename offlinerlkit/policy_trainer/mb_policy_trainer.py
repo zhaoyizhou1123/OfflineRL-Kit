@@ -31,7 +31,8 @@ class MBPolicyTrainer:
         eval_episodes: int = 10,
         lr_scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
         dynamics_update_freq: int = 0,
-        horizon: Optional[int] = None
+        horizon: Optional[int] = None,
+        has_terminal = False
     ) -> None:
         self.policy = policy
         self.eval_env = eval_env
@@ -53,6 +54,7 @@ class MBPolicyTrainer:
 
         self.is_gymnasium_env = hasattr(self.eval_env, "get_true_observation")
         assert (not self.is_gymnasium_env) or (self.horizon is not None), "Horizon must be specified for Gymnasium env"
+        self.has_terminal = has_terminal
 
     def train(self) -> Dict[str, float]:
         start_time = time.time()
@@ -105,7 +107,7 @@ class MBPolicyTrainer:
             ep_reward_mean, ep_reward_std = np.mean(eval_info["eval/episode_reward"]), np.std(eval_info["eval/episode_reward"])
             ep_length_mean, ep_length_std = np.mean(eval_info["eval/episode_length"]), np.std(eval_info["eval/episode_length"])
 
-            if self.is_gymnasium_env: # gymnasium_env does not have normalized score
+            if not hasattr(self.eval_env, "get_normalized_score"): # gymnasium_env does not have normalized score
                 last_10_performance.append(ep_reward_mean)
                 self.logger.logkv("eval/episode_reward", ep_reward_mean)
                 self.logger.logkv("eval/episode_reward_std", ep_reward_std)         
@@ -146,7 +148,7 @@ class MBPolicyTrainer:
         num_episodes = 0
         episode_reward, episode_length = 0, 0
 
-        if self.horizon is not None: # Finite horizon, terminal is unimportant
+        if not self.has_terminal: # Finite horizon, terminal is unimportant
             while num_episodes < self._eval_episodes:
                 for timestep in range(self.horizon): # One epoch
                     # print(f"Timestep {timestep}, obs {obs}")

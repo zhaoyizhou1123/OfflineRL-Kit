@@ -99,7 +99,7 @@ def get_args():
     parser.add_argument('--load_diffusion_path', type=none_or_str, default=None)
     parser.add_argument('--diffusion_seed', type=str, default='0', help="Distinguish runs for diffusion policy, not random seed")
     parser.add_argument('--task_weight', type=float, default=1.5)
-    parser.add_argument('--sample_ratio', type=float, default=0.5)
+    parser.add_argument('--sample_ratio', type=float, default=1.0)
     
 
     # Rollout 
@@ -208,6 +208,7 @@ def train(args=get_args()):
     diff_lr_scheduler = diffusion_policy.get_lr_scheduler()
 
     diff_log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part="diffusion", record_params=['sample_ratio', 'task_weight'])
+    print(f"Logging diffusion to {diff_log_dirs}")
     # key: output file name, value: output handler type
     diff_output_config = {
         "consoleout_backup": "stdout",
@@ -299,14 +300,16 @@ def train(args=get_args()):
     get_dynamics()
     get_rollout_policy()
 
-    def test_rollout(use_pred = False):
+    def test_rollout(logger: Logger, use_pred = False):
         '''
         use_pred: If True, use predicted state each round
         '''
         if use_pred:
-            print("Using predicted observation to select action")
+            # print("Using predicted observation to select action")
+            logger.log("Using predicted observation to select action")
         else:
-            print("Using true observation to select action")
+            # print("Using true observation to select action")
+            logger.log("Using true observation to select action")
         device = args.device
         num_need_traj = args.num_need_traj
 
@@ -328,6 +331,7 @@ def train(args=get_args()):
 
         valid_cnt = 0
         pred_cnt = 0
+        pick_cnt = 0
         with torch.no_grad():
             for epoch in range(start_epoch, args.rollout_epochs):
                 # batch_indexs = np.random.randint(0, init_obss_dataset.shape[0], size=1)
@@ -350,6 +354,9 @@ def train(args=get_args()):
                 achieved_rets_ = [] # The total reward that has achieved, used to compute rtg
                 # frozen_noise = diffusion_policy.sample_init_noise() # noise for action sampling
                 goal = np.array([[0]], dtype=np.float32)
+                pick = False
+                place = False
+                pred_place = False
                 for h in range(args.horizon):
                     timestep = torch.tensor(h).to(device) # scalar
                     observations_.append(deepcopy(pred_state))
@@ -393,6 +400,10 @@ def train(args=get_args()):
                     pred_ret += pred_reward
                     true_ret += true_reward
                     pred_rewards_.append(pred_reward)
+                    if info['grasp_success_target']:
+                        pick = True
+                    if info['place_success_target']:
+                        place = True
                     
                     # Update states, actions, rtgs, timesteps
                     # true_state = next_state # (state_dim)
@@ -411,11 +422,18 @@ def train(args=get_args()):
                 if true_ret >= 1:
                     valid_cnt += 1
 
-                if max(pred_rewards_) >= 0.8:
+                # if max(pred_rewards_) >= 0.8:
+                if min(pred_rewards_[-3:]) >= 0.9:
                     pred_cnt += 1
-                print(f"Epoch {epoch}, true total return {true_ret}, predicted {pred_ret}, max predicted reward {max(pred_rewards_)}")
+                    pred_place = True
+
+                if pick:
+                    pick_cnt += 1
+                # print(f"Epoch {epoch}, True success {place}, predicted success {pred_place}, pick success {pick}")
+                logger.log(f"Epoch {epoch}, True success {place}, predicted success {pred_place}, pick success {pick}")
         
-        print(f"Collected {valid_cnt} out of {args.rollout_epochs-start_epoch} trajectories, predicted {pred_cnt}")
+        # print(f"Collected {valid_cnt} out of {args.rollout_epochs-start_epoch} trajectories, predicted {pred_cnt}, pick success {pick_cnt}")
+        logger.log(f"Collected {valid_cnt} out of {args.rollout_epochs-start_epoch} trajectories, predicted {pred_cnt}, pick success {pick_cnt}")
         return trajs
 
     def test_rollout_onestep():
@@ -540,13 +558,18 @@ def train(args=get_args()):
         return trajs
     # train
 
+    rollout_save_dir = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part="rollout", record_params=['sample_ratio', 'task_weight'])
+    print(f"Logging diffusion rollout to {rollout_save_dir}")
+    rollout_logger = Logger(rollout_save_dir, {"consoleout_backup": "stdout"})
+    rollout_logger.log_hyperparameters(vars(args))
+
     # Get rollout_trajs
     env.reset(seed=args.seed)
-    test_rollout(True)
+    test_rollout(rollout_logger, True)
     env.reset(seed=args.seed)
-    test_rollout(False)
-    env.reset(seed=args.seed)
-    test_rollout_onestep()
+    test_rollout( rollout_logger, False)
+    # env.reset(seed=args.seed)
+    # test_rollout_onestep()
 
 
 if __name__ == "__main__":

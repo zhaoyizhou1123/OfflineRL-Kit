@@ -25,7 +25,9 @@ class MFPolicyTrainer:
         step_per_epoch: int = 1000,
         batch_size: int = 256,
         eval_episodes: int = 10,
-        lr_scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None
+        lr_scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
+        horizon: Optional[int] = None,
+        has_terminal = False
     ) -> None:
         self.policy = policy
         self.eval_env = eval_env
@@ -37,6 +39,11 @@ class MFPolicyTrainer:
         self._batch_size = batch_size
         self._eval_episodes = eval_episodes
         self.lr_scheduler = lr_scheduler
+
+        self.is_gymnasium_env = hasattr(self.eval_env, "get_true_observation")
+        assert (not self.is_gymnasium_env) or (self.horizon is not None), "Horizon must be specified for Gymnasium env"
+        self.has_terminal = has_terminal
+        self.horizon = horizon
 
     def train(self) -> Dict[str, float]:
         start_time = time.time()
@@ -96,21 +103,60 @@ class MFPolicyTrainer:
         num_episodes = 0
         episode_reward, episode_length = 0, 0
 
-        while num_episodes < self._eval_episodes:
-            action = self.policy.select_action(obs.reshape(1,-1), deterministic=True)
-            next_obs, reward, terminal, _ = self.eval_env.step(action.flatten())
-            episode_reward += reward
-            episode_length += 1
+        if not self.has_terminal: # Finite horizon, terminal is unimportant
+            while num_episodes < self._eval_episodes:
+                for timestep in range(self.horizon): # One epoch
+                    # print(f"Timestep {timestep}, obs {obs}")
+                    action = self.policy.select_action(obs.reshape(1, -1), deterministic=True)
+                    if hasattr(self.eval_env, "get_true_observation"): # gymnasium env 
+                        next_obs, reward, terminal, _, _ = self.eval_env.step(action.flatten())
+                    else:
+                        next_obs, reward, terminal, _ = self.eval_env.step(action.flatten())
+                    if self.is_gymnasium_env:
+                        next_obs = self.eval_env.get_true_observation(next_obs)
+                    episode_reward += reward
+                    episode_length += 1
 
-            obs = next_obs
+                    obs = next_obs
 
-            if terminal:
+                    # if terminal:
+                    #     break # Stop current epoch
                 eval_ep_info_buffer.append(
                     {"episode_reward": episode_reward, "episode_length": episode_length}
                 )
                 num_episodes +=1
                 episode_reward, episode_length = 0, 0
-                obs = self.eval_env.reset()
+                if self.is_gymnasium_env:
+                    obs, _ = self.eval_env.reset()
+                    obs = self.eval_env.get_true_observation(obs)
+                else:
+                    obs = self.eval_env.reset()
+        else:
+            while num_episodes < self._eval_episodes:
+                # print(f"Timestep {timestep}, obs {obs}")
+                action = self.policy.select_action(obs.reshape(1, -1), deterministic=True)
+                if hasattr(self.eval_env, "get_true_observation"): # gymnasium env 
+                    next_obs, reward, terminal, _, _ = self.eval_env.step(action.flatten())
+                else:
+                    next_obs, reward, terminal, _ = self.eval_env.step(action.flatten())
+                if self.is_gymnasium_env:
+                    next_obs = self.eval_env.get_true_observation(next_obs)
+                episode_reward += reward
+                episode_length += 1
+
+                obs = next_obs
+
+                if terminal: # Episode finishes
+                    eval_ep_info_buffer.append(
+                        {"episode_reward": episode_reward, "episode_length": episode_length}
+                    )
+                    num_episodes +=1
+                    episode_reward, episode_length = 0, 0
+                    if self.is_gymnasium_env:
+                        obs, _ = self.eval_env.reset()
+                        obs = self.eval_env.get_true_observation(obs)
+                    else:
+                        obs = self.eval_env.reset()
         
         return {
             "eval/episode_reward": [ep_info["episode_reward"] for ep_info in eval_ep_info_buffer],

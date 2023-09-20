@@ -1,4 +1,4 @@
-# AutoregressiveDynamics
+# AutoregressivePolicy
 
 import argparse
 import os
@@ -123,77 +123,77 @@ def get_args():
 
     return parser.parse_args()
 
-def rollout(
-    init_obss: np.ndarray,
-    dynamics: AutoregressiveDynamics,
-    rollout_policy: SimpleDiffusionPolicy,
-    rollout_length: int
-) -> Tuple[Dict[str, np.ndarray], Dict]:
-    '''
-    Sample a batch of trajectories at the same time.
-    Output rollout_transitions contain keys:
-    obss,
-    next_obss,
-    actions
-    rewards, (N,1)
-    rtgs, (N,1)
-    traj_idxs, (N)
-    '''
+# def rollout(
+#     init_obss: np.ndarray,
+#     dynamics: AutoregressiveDynamics,
+#     rollout_policy: SimpleDiffusionPolicy,
+#     rollout_length: int
+# ) -> Tuple[Dict[str, np.ndarray], Dict]:
+#     '''
+#     Sample a batch of trajectories at the same time.
+#     Output rollout_transitions contain keys:
+#     obss,
+#     next_obss,
+#     actions
+#     rewards, (N,1)
+#     rtgs, (N,1)
+#     traj_idxs, (N)
+#     '''
 
-    num_transitions = 0
-    rewards_arr = np.array([])
-    rollout_transitions = defaultdict(list)
-    valid_idxs = np.arange(init_obss.shape[0]) # maintain current valid trajectory indexes
-    returns = np.zeros(init_obss.shape[0]) # maintain return of each trajectory
-    acc_returns = np.zeros(init_obss.shape[0]) # maintain accumulated return of each valid trajectory
-    max_rewards = np.zeros(init_obss.shape[0]) # maintain max reward seen in trajectory
+#     num_transitions = 0
+#     rewards_arr = np.array([])
+#     rollout_transitions = defaultdict(list)
+#     valid_idxs = np.arange(init_obss.shape[0]) # maintain current valid trajectory indexes
+#     returns = np.zeros(init_obss.shape[0]) # maintain return of each trajectory
+#     acc_returns = np.zeros(init_obss.shape[0]) # maintain accumulated return of each valid trajectory
+#     max_rewards = np.zeros(init_obss.shape[0]) # maintain max reward seen in trajectory
 
-    # rollout
-    observations = init_obss
+#     # rollout
+#     observations = init_obss
 
-    # frozen_noise = rollout_policy.sample_init_noise(init_obss.shape[0])
-    goal = np.zeros((init_obss.shape[0],1), dtype = np.float32)
-    for _ in range(rollout_length):
-        actions = rollout_policy.select_action(observations, goal)
-        next_observations, rewards, terminals, info = dynamics.step(observations, actions)
-        rewards = rewards.clip(0,1) # set rewards in [0,1]
-        rollout_transitions["observations"].append(observations)
-        rollout_transitions["next_observations"].append(next_observations)
-        rollout_transitions["actions"].append(actions)
-        rollout_transitions["rewards"].append(rewards)
-        rollout_transitions["terminals"].append(terminals)
-        rollout_transitions["traj_idxs"].append(valid_idxs)
-        rollout_transitions["acc_rets"].append(acc_returns)
+#     # frozen_noise = rollout_policy.sample_init_noise(init_obss.shape[0])
+#     goal = np.zeros((init_obss.shape[0],1), dtype = np.float32)
+#     for _ in range(rollout_length):
+#         actions = rollout_policy.select_action(observations, goal)
+#         next_observations, rewards, terminals, info = dynamics.step(observations, actions)
+#         rewards = rewards.clip(0,1) # set rewards in [0,1]
+#         rollout_transitions["observations"].append(observations)
+#         rollout_transitions["next_observations"].append(next_observations)
+#         rollout_transitions["actions"].append(actions)
+#         rollout_transitions["rewards"].append(rewards)
+#         rollout_transitions["terminals"].append(terminals)
+#         rollout_transitions["traj_idxs"].append(valid_idxs)
+#         rollout_transitions["acc_rets"].append(acc_returns)
 
-        num_transitions += len(observations)
-        rewards_arr = np.append(rewards_arr, rewards.flatten())
+#         num_transitions += len(observations)
+#         rewards_arr = np.append(rewards_arr, rewards.flatten())
 
-        # print(returns[valid_idxs].shape, rewards.shape)
-        returns[valid_idxs] = returns[valid_idxs] + rewards.flatten() # Update return (for valid idxs only)
-        max_rewards[valid_idxs] = np.maximum(max_rewards[valid_idxs], rewards.flatten()) # Update max reward
-        acc_returns = acc_returns + rewards.flatten()
+#         # print(returns[valid_idxs].shape, rewards.shape)
+#         returns[valid_idxs] = returns[valid_idxs] + rewards.flatten() # Update return (for valid idxs only)
+#         max_rewards[valid_idxs] = np.maximum(max_rewards[valid_idxs], rewards.flatten()) # Update max reward
+#         acc_returns = acc_returns + rewards.flatten()
 
-        nonterm_mask = (~terminals).flatten()
-        if nonterm_mask.sum() == 0:
-            break
+#         nonterm_mask = (~terminals).flatten()
+#         if nonterm_mask.sum() == 0:
+#             break
 
-        observations = next_observations[nonterm_mask] # Only keep trajs that have not terminated
-        valid_idxs = valid_idxs[nonterm_mask] # update unterminated traj indexs
-        acc_returns = acc_returns[nonterm_mask] # Only keep acc_ret of trajs that have not terminated
-        goal = goal[nonterm_mask]
+#         observations = next_observations[nonterm_mask] # Only keep trajs that have not terminated
+#         valid_idxs = valid_idxs[nonterm_mask] # update unterminated traj indexs
+#         acc_returns = acc_returns[nonterm_mask] # Only keep acc_ret of trajs that have not terminated
+#         goal = goal[nonterm_mask]
     
-    for k, v in rollout_transitions.items():
-        rollout_transitions[k] = np.concatenate(v, axis=0)
+#     for k, v in rollout_transitions.items():
+#         rollout_transitions[k] = np.concatenate(v, axis=0)
 
-    # Compute rtgs.Keep dense return
-    # returns = (returns >= 1).astype(np.float32) # return >=1 means success, 1; otherwise 0
-    traj_idxs = rollout_transitions["traj_idxs"]
-    rtgs = returns[traj_idxs] - rollout_transitions["acc_rets"]
-    # rtgs = returns[traj_idxs] 
-    rollout_transitions["rtgs"] = rtgs[..., None] # (N,1)
+#     # Compute rtgs.Keep dense return
+#     # returns = (returns >= 1).astype(np.float32) # return >=1 means success, 1; otherwise 0
+#     traj_idxs = rollout_transitions["traj_idxs"]
+#     rtgs = returns[traj_idxs] - rollout_transitions["acc_rets"]
+#     # rtgs = returns[traj_idxs] 
+#     rollout_transitions["rtgs"] = rtgs[..., None] # (N,1)
 
-    return rollout_transitions, \
-        {"num_transitions": num_transitions, "reward_mean": rewards_arr.mean(), "returns": returns, "max_rewards": max_rewards}
+#     return rollout_transitions, \
+#         {"num_transitions": num_transitions, "reward_mean": rewards_arr.mean(), "returns": returns, "max_rewards": max_rewards}
 
 def rollout_simple(
     init_obss: np.ndarray,
@@ -318,6 +318,8 @@ def train(args=get_args()):
         dyn_dataset, init_obss_dataset = get_pickplace_dataset(args.data_dir)
         # args.max_action = env.action_space.high[0]
         # print(args.action_dim, type(args.action_dim
+
+    env.reset(seed=args.seed)
 
     # print(f"dynamics_hidden_dims = {args.dynamics_hidden_dims}")
     # log

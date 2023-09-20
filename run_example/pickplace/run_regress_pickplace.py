@@ -209,7 +209,7 @@ def train(args=get_args()):
         eval_env = env,
         offline_dataset = dataset,
         rollout_dataset = None,
-        goal = np.mean(returns_all), # no return
+        goal = 0., # no return
         logger = rcsl_logger,
         seed = args.seed,
         epoch = args.rcsl_epoch,
@@ -222,7 +222,7 @@ def train(args=get_args()):
         eval_episodes = args.eval_episodes
         # device = args.device
     )
-    print(f"Goal: {np.mean(returns_all)}")
+    # print(f"Goal: {np.mean(returns_all)}")
     
     policy_trainer.train()
 
