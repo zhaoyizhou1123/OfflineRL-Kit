@@ -36,11 +36,15 @@ class AutoregressiveDynamics(BaseDynamics):
         # obs_act = self.scaler.transform(obs_act)
         # print(obs_act.shape)
 
-        next_predict = self.model(obs_act) # (batch, obs_dim + 1) [delta_ob, reward]
+        next_predict = self.model(obs_act) # (batch, obs_dim + 1) [reward, obs]
         # next_delta_obs = next_predict[:, :-1].cpu().numpy()
         # next_obs = next_delta_obs + obs
-        next_obs = next_predict[:, :-1].cpu().numpy()
-        reward = next_predict[:, -1].cpu().numpy()
+        # next_obs = next_predict[:, :-1].cpu().numpy()
+        # reward = next_predict[:, -1].cpu().numpy()
+
+        # Reward first
+        next_obs = next_predict[:, 1:].cpu().numpy()
+        reward = next_predict[:, 0].cpu().numpy()        
         terminal = np.array([False for _ in range(reward.shape[0])])
 
         # mean, logvar = self.model(obs_act)
@@ -111,7 +115,8 @@ class AutoregressiveDynamics(BaseDynamics):
         # delta_obss = next_obss - obss
         inputs = np.concatenate((obss, actions), axis=-1)
         # targets = np.concatenate((delta_obss, rewards), axis=-1)
-        targets = np.concatenate((next_obss, rewards), axis=-1)
+        # targets = np.concatenate((next_obss, rewards), axis=-1)
+        targets = np.concatenate((rewards, next_obss), axis=-1) # estimate reward first
         if 'weights' in data:
             weights = data['weights']
             weights = weights.reshape(weights.shape[0], -1) # (N,1)

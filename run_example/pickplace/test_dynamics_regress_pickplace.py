@@ -121,6 +121,12 @@ def get_args():
 
 def train(args=get_args()):
     print(args)
+    # seed
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+    torch.backends.cudnn.deterministic = True
 
     # create env and dataset
     if args.task == 'pickplace' or args.task == 'pickplace_easy':
@@ -152,13 +158,6 @@ def train(args=get_args()):
     else:
         raise NotImplementedError
 
-
-    # seed
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.cuda.manual_seed_all(args.seed)
-    torch.backends.cudnn.deterministic = True
     env.reset(seed = args.seed)
 
     # print(f"dynamics_hidden_dims = {args.dynamics_hidden_dims}")
