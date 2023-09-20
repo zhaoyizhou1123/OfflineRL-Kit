@@ -177,10 +177,15 @@ def train(args=get_args()):
         obs_dim=obs_dim,
         act_dim=action_dim,
         hidden_dims=args.dynamics_hidden_dims,
+        r_hidden_dims=args.dynamics_hidden_dims,
         device = args.device
     )
     dynamics_optim = torch.optim.Adam(
-        dynamics_model.parameters(),
+        list(dynamics_model.model.parameters())+[dynamics_model.max_logstd, dynamics_model.min_logstd],
+        lr=args.dynamics_lr
+    )
+    r_optim = torch.optim.Adam(
+        list(dynamics_model.r_model.parameters())+[dynamics_model.max_logstd_r, dynamics_model.min_logstd_r],
         lr=args.dynamics_lr
     )
     scaler = StandardScaler()
@@ -188,6 +193,7 @@ def train(args=get_args()):
     dynamics = AutoregressiveDynamics(
         dynamics_model,
         dynamics_optim,
+        r_optim
         # scaler,
         # termination_fn
     )
@@ -274,6 +280,7 @@ def train(args=get_args()):
         else: 
             print(f"Train dynamics")
             dynamics.train(dyn_dataset, logger, max_epochs_since_update=5, max_epochs=80)
+            # dynamics.train_r(dyn_dataset, logger, max_epochs_since_update=5, max_epochs=80)
             # raise NotImplementedError
         
     # # Finish get_rollout_policy
