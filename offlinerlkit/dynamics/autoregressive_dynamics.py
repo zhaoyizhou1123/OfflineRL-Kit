@@ -14,10 +14,10 @@ class AutoregressiveDynamics(BaseDynamics):
         self,
         model: AutoregressiveDynamicsModel,
         optim: torch.optim.Optimizer,
-        scaler: StandardScaler,
+        # scaler: StandardScaler,
     ) -> None:
         super().__init__(model, optim)
-        self.scaler = scaler
+        # self.scaler = scaler
 
     @ torch.no_grad()
     def step(
@@ -33,12 +33,13 @@ class AutoregressiveDynamics(BaseDynamics):
         "imagine single forward step"
         obs_act = np.concatenate([obs, action], axis=-1)
         # print(obs_act.shape)
-        obs_act = self.scaler.transform(obs_act)
+        # obs_act = self.scaler.transform(obs_act)
         # print(obs_act.shape)
 
         next_predict = self.model(obs_act) # (batch, obs_dim + 1) [delta_ob, reward]
-        next_delta_obs = next_predict[:, :-1].cpu().numpy()
-        next_obs = next_delta_obs + obs
+        # next_delta_obs = next_predict[:, :-1].cpu().numpy()
+        # next_obs = next_delta_obs + obs
+        next_obs = next_predict[:, :-1].cpu().numpy()
         reward = next_predict[:, -1].cpu().numpy()
         terminal = np.array([False for _ in range(reward.shape[0])])
 
@@ -107,9 +108,10 @@ class AutoregressiveDynamics(BaseDynamics):
         next_obss = data["next_observations"]
         rewards = data["rewards"]
         rewards = rewards.reshape(rewards.shape[0], -1)
-        delta_obss = next_obss - obss
+        # delta_obss = next_obss - obss
         inputs = np.concatenate((obss, actions), axis=-1)
-        targets = np.concatenate((delta_obss, rewards), axis=-1)
+        # targets = np.concatenate((delta_obss, rewards), axis=-1)
+        targets = np.concatenate((next_obss, rewards), axis=-1)
         if 'weights' in data:
             weights = data['weights']
             weights = weights.reshape(weights.shape[0], -1) # (N,1)
@@ -139,9 +141,9 @@ class AutoregressiveDynamics(BaseDynamics):
         else: 
             train_weights, holdout_weights = None, None
 
-        self.scaler.fit(train_inputs) # I didn't implement weighted loss here.
-        train_inputs = self.scaler.transform(train_inputs) 
-        holdout_inputs = self.scaler.transform(holdout_inputs)
+        # self.scaler.fit(train_inputs) # I didn't implement weighted loss here.
+        # train_inputs = self.scaler.transform(train_inputs) 
+        # holdout_inputs = self.scaler.transform(holdout_inputs)
         holdout_loss = 1e10
 
         # data_idxes = np.random.randint(train_size, size=[train_size]) # (N)
@@ -178,12 +180,12 @@ class AutoregressiveDynamics(BaseDynamics):
             #         indexes.append(i)
             #         holdout_losses[i] = new_loss
             improvement = (holdout_loss - new_holdout_loss) / abs(holdout_loss)
-            if improvement > 0.01:
-                holdout_loss = new_holdout_loss
-                # self.model.update_save(indexes)
-                cnt = 0
-            else:
-                cnt += 1
+            # if improvement > 0.01:
+            #     holdout_loss = new_holdout_loss
+            #     # self.model.update_save(indexes)
+            #     cnt = 0
+            # else:
+            #     cnt += 1
             
             if (cnt >= max_epochs_since_update) or (max_epochs and (epoch >= max_epochs)):
                 break
@@ -263,8 +265,8 @@ class AutoregressiveDynamics(BaseDynamics):
 
     def save(self, save_path: str) -> None:
         torch.save(self.model.state_dict(), os.path.join(save_path, "dynamics.pth"))
-        self.scaler.save_scaler(save_path)
+        # self.scaler.save_scaler(save_path)
     
     def load(self, load_path: str) -> None:
         self.model.load_state_dict(torch.load(os.path.join(load_path, "dynamics.pth"), map_location=self.model.device))
-        self.scaler.load_scaler(load_path)
+        # self.scaler.load_scaler(load_path)
