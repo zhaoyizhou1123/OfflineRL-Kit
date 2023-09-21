@@ -77,6 +77,8 @@ class AutoregressiveDynamicsModel(nn.Module):
             self.r_model.append(nn.LeakyReLU())
 
         self.to(self.device)
+
+        self.obj_pos_w = 40.
     def forward(self, obs_act: np.ndarray):
         '''
         Return:
@@ -195,9 +197,13 @@ class AutoregressiveDynamicsModel(nn.Module):
         if weights is None:
             loss = loss.mean()
         else:
-            loss = loss.reshape(loss.shape[0], -1) # (batch * act_dim, 1)
+            loss = loss.reshape(loss.shape[0], -1) # (batch * obs_dim, 1)
+
             weights = weights.reshape(weights.shape[0], -1) # (batch, 1)
-            weights = weights.repeat(self.predict_dim, 1) # (batch * act_dim, 1)
+            weights = weights.repeat(self.predict_dim, 1) # (batch * obs_dim, 1)
+            # Add weights to obs position
+            weights[0:batch_size*3,:] = weights[0:batch_size*3,:] * self.obj_pos_w
+
             loss = torch.sum(loss * weights) / (torch.sum(weights) * loss.shape[-1])
 
         return loss
