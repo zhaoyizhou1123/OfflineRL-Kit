@@ -85,15 +85,20 @@ def get_pickplace_dataset(data_dir: str, prior_weight: float =1., task_weight: f
     elif set_type =='task':
         full_data = task_data
     keys = ['observations', 'actions', 'rewards', 'next_observations', 'terminals', 'weights']
-    dict_data  = {}
+
     init_obss = []
+    for d in prior_data:
+        obs_list = d['observations']
+        init_obss.append(get_true_obs(obs_list[0]))
+        
+    dict_data  = {}
     for key in keys:
         values = []
         for d in full_data: # trajectory, dict of lists
             value_list = d[key] # list of timesteps data
             if key == 'observations':
                 values += [get_true_obs(obs) for obs in value_list] # element is list
-                init_obss.append(get_true_obs(value_list[0])) # Get initial observation
+                # init_obss.append(get_true_obs(value_list[0])) # Get initial observation
             elif key == 'next_observations':
                 # print(get_true_obs(value_list[0]))
                 values += [get_true_obs(obs) for obs in value_list] # element is list

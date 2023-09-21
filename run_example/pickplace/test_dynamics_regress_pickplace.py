@@ -574,6 +574,7 @@ def train(args=get_args()):
         valid_cnt = 0
         pred_cnt = 0
         pick_cnt = 0
+        env.reset(seed = args.seed) # reset seed for reproducibility
         with torch.no_grad():
             for epoch in range(start_epoch, args.rollout_epochs):
                 # batch_indexs = np.random.randint(0, init_obss_dataset.shape[0], size=1)
@@ -585,6 +586,7 @@ def train(args=get_args()):
 
                 # print(f"Eval forward: states {states.shape}, actions {actions.shape}")
                 print(f"-----------\nEpoch {epoch}")
+                print(f"Initial observation {true_state}")
 
                 pred_ret = 0
                 true_ret = 0
@@ -665,7 +667,7 @@ def train(args=get_args()):
                     valid_cnt += 1
 
                 # if max(pred_rewards_) >= 0.8:
-                if min(pred_rewards_[-3:]) >= 0.9:
+                if min(pred_rewards_[-3:]) >= 0.7 and max(pred_rewards_[-3:]) >= 0.9 and max(pred_rewards_[-3:]) < 2.0:
                     pred_cnt += 1
                     pred_place = True
 

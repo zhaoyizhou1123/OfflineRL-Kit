@@ -68,7 +68,8 @@ class AutoregressiveDynamicsModel(nn.Module):
             self.model.append(nn.LeakyReLU())
 
         # reward_model
-        r_input_dim = obs_dim + act_dim + 1 + 1
+        # r_input_dim = obs_dim + act_dim + 1 + 1
+        r_input_dim = obs_dim + 1 + 1 # no action
         r_all_dims = [r_input_dim] + list(r_hidden_dims) + [2]
         self.r_model = nn.ModuleList()
         for in_dim, out_dim in zip(r_all_dims[:-1], r_all_dims[1:]):
@@ -79,7 +80,7 @@ class AutoregressiveDynamicsModel(nn.Module):
     def forward(self, obs_act: np.ndarray):
         '''
         Return:
-            [delta_obs,reward] !
+            [reward, obs]
         '''
         batch_size = obs_act.shape[0]
         obs_act = torch.as_tensor(obs_act).type(torch.float32).to(self.device)
@@ -123,7 +124,7 @@ class AutoregressiveDynamicsModel(nn.Module):
         for i in range(1):
             r_one_hot = r_one_hot_all[i][None, :].repeat(batch_size, 1) # (batch, predict_dim)
             # print(obs_act.shape, next_predict.shape, one_hot.shape)
-            x = torch.cat([obs_act, next_r_predict, r_one_hot], dim=1)
+            x = torch.cat([obs_act[:, :self.obs_dim], next_r_predict, r_one_hot], dim=1) # (obs,0,0)
             for layer in self.r_model:
                 # print(x.shape)
                 x = layer(x)
@@ -236,7 +237,7 @@ class AutoregressiveDynamicsModel(nn.Module):
         # Repeat obs by predict_dim times
         # obs_full = obs.repeat(self.predict_dim, 1) # (batch * predict_dim, obs_dim)
         # act_full = act.repeat(self.predict_dim, 1)
-        obs_act_r_full = obs_act.repeat(1, 1)
+        obs_act_r_full = obs_act[:, :self.obs_dim].repeat(1, 1) # only obs
 
         # Concatenate everything to get input
         # input_full = torch.cat([obs_full, act_full, next_predict_masked, one_hot_full], dim=1)
