@@ -1,13 +1,16 @@
 # dynamics_path="logs/pickplace_easy/mbrcsl_regress/dynamics/timestamp_23-0918-070448&0_keep/model"
 # dyn_path="logs/pickplace/test_dyn/dynamics/timestamp_23-0915-015639-s0_keep/model"
 # dyn_path="logs/pickplace/test_dyn_regress&sample_ratio=0.8&task_weight=1.0/dynamics_regress/timestamp_23-0920-101535&0_success/model"
-dyn_path=None
+dyn_path="logs/pickplace/test_dyn_trans&n_layer=4&sample_ratio=0.8/dynamics_trans/timestamp_23-0921-102446&0/model"
+# dyn_path=None
 # diff_path="logs/pickplace/diffusion/timestamp_23-0914-110329&0/checkpoint/policy.pth"
 # diff_path="logs/pickplace/diffusion/timestamp_23-0915-004443&0_keep/checkpoint/policy.pth"
 # diff_path="logs/pickplace/diffusion/timestamp_23-0916-110230&0_w1.5/model/policy.pth"
-# diff_path="logs/pickplace_easy/test_dyn&sample_ratio=0.8&task_weight=1.4/diffusion/timestamp_23-0920-062514&0_keep/model/policy.pth"
-diff_path=None
+diff_path="logs/pickplace_easy/test_dyn&sample_ratio=0.8&task_weight=1.4/diffusion/timestamp_23-0920-062514&0_keep/model/policy.pth"
+# diff_path=None
 # rollout_path="logs/pickplace_easy/test_dyn/rollout_true/timestamp_23-0916-222425&0_data/checkpoint"
+# rollout_path="logs/pickplace/mbrcsl_double_regress&sample_ratio=0.8&task_weight=1.0/rollout/timestamp_23-0920-115547&0_keep/checkpoint"
+# rollout_path="logs/pickplace/mbrcsl_double_regress_final&sample_ratio=0.8&task_weight=1.0/rollout/timestamp_23-0920-183516&0/checkpoint"
 rollout_path=None
 
 # for task_weight in 1.5 1.75 1.25 1.9 1.1
@@ -25,30 +28,29 @@ rollout_path=None
 #         --eval_episodes 50 --horizon 40 --rcsl-epoch 100 \
 #         --task_weight ${task_weight}
 # done
-for seed in 1 2 
-do
-    CUDA_VISIBLE_DEVICES=0 python run_example/pickplace/run_mbrcsl_pickplace_v4.py \
-        --seed ${seed} --num_workers 2 \
-        --task 'pickplace' --algo-name 'mbrcsl_trans_regress_final' --horizon 40 \
-        --load-dynamics-path ${dyn_path} \
-        --load_diffusion_path ${diff_path} --behavior_epoch 30 --sample_ratio 0.8 --task_weight 1.4 \
-        --rollout_ckpt_path ${rollout_path} --rollout_epochs 30000 --num_need_traj 5000 --rollout-batch 200 \
-        --eval_episodes 100  --rcsl-epoch 1000 &
-    sleep 60
-done
+# for seed in 1 2 
+# do
+#     CUDA_VISIBLE_DEVICES=0 python run_example/pickplace/run_mbrcsl_pickplace_v3.py \
+#         --seed ${seed} --num_workers 2 \
+#         --task 'pickplace' --algo-name 'mbrcsl_double_regress_final' --horizon 40 \
+#         --load-dynamics-path ${dyn_path} \
+#         --load_diffusion_path ${diff_path} --behavior_epoch 30 --sample_ratio 0.8 --task_weight 1 \
+#         --rollout_ckpt_path ${rollout_path} --rollout_epochs 30000 --num_need_traj 2500 --rollout-batch 1 \
+#         --eval_episodes 50  --rcsl-epoch 100 &
+#     sleep 60
+# done
 
-for seed in 3 0
-do
-    CUDA_VISIBLE_DEVICES=0 python run_example/pickplace/run_mbrcsl_pickplace_v4.py \
-        --seed ${seed} --num_workers 2 \
-        --task 'pickplace' --algo-name 'mbrcsl_trans_regress_final' --horizon 40 \
-        --load-dynamics-path ${dyn_path} \
-        --load_diffusion_path ${diff_path} --behavior_epoch 30 --sample_ratio 0.8 --task_weight 1.4 \
-        --rollout_ckpt_path ${rollout_path} --rollout_epochs 30000 --num_need_traj 5000 --rollout-batch 200 \
-        --eval_episodes 100  --rcsl-epoch 1000 &
-    sleep 60
-done
-wait
+# for seed in 3 0
+# do
+#     CUDA_VISIBLE_DEVICES=1 python run_example/pickplace/run_mbrcsl_pickplace_v3.py \
+#         --seed ${seed} --num_workers 2 \
+#         --task 'pickplace' --algo-name 'mbrcsl_double_regress_final' --horizon 40 \
+#         --load-dynamics-path ${dyn_path} \
+#         --load_diffusion_path ${diff_path} --behavior_epoch 30 --sample_ratio 0.8 --task_weight 1 \
+#         --rollout_ckpt_path ${rollout_path} --rollout_epochs 30000 --num_need_traj 2500 --rollout-batch 1 \
+#         --eval_episodes 50  --rcsl-epoch 100 &
+#     sleep 60
+# done
 
 # for sample in 0.3
 # do
@@ -60,6 +62,15 @@ wait
 #     --rollout_ckpt_path ${rollout_path} --rollout_epochs 30000 --num_need_traj 2500 --rollout-batch 1 \
 #     --eval_episodes 50  --rcsl-epoch 75
 # done
+
+num_traj=2500
+python run_example/pickplace/run_mbrcsl_pickplace_v4.py \
+    --seed 0 --num_workers 4 \
+    --task 'pickplace' --algo-name 'mbrcsl_trans_test' --horizon 40 \
+    --load-dynamics-path ${dyn_path} \
+    --load_diffusion_path ${diff_path} --behavior_epoch 30 --sample_ratio 0.8 --task_weight 1 \
+    --rollout_ckpt_path ${rollout_path} --rollout_epochs 30000 --num_need_traj ${num_traj} --rollout-batch 100 \
+    --eval_episodes 100  --rcsl-epoch 1000
 
 # d_path="log/maze/combo/seed_1&timestamp_23-0809-143727/model"
 # algo=mopo

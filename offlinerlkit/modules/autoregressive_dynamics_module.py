@@ -78,7 +78,7 @@ class AutoregressiveDynamicsModel(nn.Module):
 
         self.to(self.device)
 
-        self.obj_pos_w = 40.
+        self.obj_pos_w = 1.
     def forward(self, obs_act: np.ndarray):
         '''
         Return:

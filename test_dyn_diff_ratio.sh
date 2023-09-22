@@ -4,10 +4,9 @@
 # diff_path="logs/pickplace_easy/mbrcsl_regress&eval_episodes=50&task_weight=1.5&sample_ratio=0.3/diffusion/timestamp_23-0919-103444&0/model/policy.pth"
 # diff_path="logs/pickplace_easy/test_dyn&sample_ratio=0.25&task_weight=1.5/diffusion/timestamp_23-0919-073653&0_keep/model/policy.pth"
 # diff_path="logs/pickplace_easy/test_dyn&sample_ratio=0.5&task_weight=1.5/diffusion/timestamp_23-0919-053139&0_keep/model/policy.pth"
-# diff_path=None
+diff_path=None
 # dyn_path="logs/pickplace/test_dyn/dynamics/timestamp_23-0915-015639&0/model"
-# dyn_path="logs/pickplace_easy/mbrcsl_regress&eval_episodes=50&task_weight=1.5&sample_ratio=0.3/dynamics/timestamp_23-0919-103434&0/model"
-dyn_path="logs/pickplace/test_dyn&sample_ratio=0.8&task_weight=1.4/diffusion/timestamp_23-0920-052340&0_keep/model/policy.pth"
+dyn_path="logs/pickplace_easy/mbrcsl_regress&eval_episodes=50&task_weight=1.5&sample_ratio=0.3/dynamics/timestamp_23-0919-103434&0/model"
 # dyn_path=None
 # rollout_path="logs/pickplace/test_dyn/rollout/timestamp_23-0915-061633&0_1000/checkpoint"
 # rollout_path="logs/pickplace/test_dyn/rollout/timestamp_23-0915-054333&0_10000_sparse/checkpoint"
@@ -30,41 +29,41 @@ iter=5
 # done 
 # wait
 
-# for ratio in 0.2 0.4 0.6 1
+for ratio in 0.2 0.4 0.6 1
+do
+python run_example/pickplace/test_dynamics_pickplace.py \
+    --task pickplace \
+    --num_workers 1 \
+    --behavior_epoch 30 --num_diffusion_iters $iter --horizon 40 \
+    --load_diffusion_path ${diff_path} --sample_ratio ${ratio} --task_weight 0.8 \
+    --load-dynamics-path ${dyn_path} \
+    --rollout_epochs 100 &
+done 
+wait
+
+# for weight in 1.2 1.4 1.6 1.8 2
+# do
+# python run_example/pickplace/test_dynamics_pickplace.py \
+#     --task pickplace_easy \
+#     --num_workers 1 \
+#     --behavior_epoch 30 --num_diffusion_iters $iter --horizon 40 \
+#     --load_diffusion_path ${diff_path} --sample_ratio 1 --task_weight 1 \
+#     --load-dynamics-path ${dyn_path} \
+#     --rollout_epochs 100 &
+# done 
+# wait
+
+# for weight in 1.2 1.4 1.6 1.8 2
 # do
 # python run_example/pickplace/test_dynamics_pickplace.py \
 #     --task pickplace \
-#     --num_workers 2 \
+#     --num_workers 1 \
 #     --behavior_epoch 30 --num_diffusion_iters $iter --horizon 40 \
 #     --load_diffusion_path ${diff_path} --sample_ratio ${ratio} --task_weight 1 \
 #     --load-dynamics-path ${dyn_path} \
 #     --rollout_epochs 100 &
 # done 
 # wait
-
-for weight in 1.4
-do
-python run_example/pickplace/test_dynamics_pickplace.py \
-    --task pickplace \
-    --num_workers 1 \
-    --behavior_epoch 30 --num_diffusion_iters $iter --horizon 40 \
-    --load_diffusion_path ${diff_path} --sample_ratio 0.8 --task_weight ${weight} \
-    --load-dynamics-path ${dyn_path} \
-    --rollout_epochs 100 &
-done 
-wait
-
-for weight in 1.4
-do
-python run_example/pickplace/test_dynamics_pickplace.py \
-    --task pickplace_easy \
-    --num_workers 1 \
-    --behavior_epoch 30 --num_diffusion_iters $iter --horizon 40 \
-    --load_diffusion_path ${diff_path} --sample_ratio 0.8 --task_weight ${weight} \
-    --load-dynamics-path ${dyn_path} \
-    --rollout_epochs 100 &
-done 
-wait
 
 # python run_example/pickplace/test_dynamics_pickplace.py \
 #     --task pickplace_easy \

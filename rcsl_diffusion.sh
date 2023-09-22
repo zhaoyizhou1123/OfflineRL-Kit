@@ -1,14 +1,25 @@
 # diff_path="logs/pickplace/diffusion/timestamp_23-0914-110329&0/checkpoint/policy.pth"
 # diff_path="logs/pickplace/diffusion/timestamp_23-0915-004443&0_keep/checkpoint/policy.pth"
 diff_path=None
-rollout_path="logs/pickplace_easy/test_dyn/rollout_true/timestamp_23-0916-222425&0_data/checkpoint"
+# rollout_path="logs/pickplace_easy/test_dyn/rollout_true/timestamp_23-0916-222425&0_data/checkpoint"
 
-# for task_weight in 1.5 1.75 1.25 1.9 1.1
-# do
-#     python run_example/pickplace/run_diffusion_pickplace.py \
-#         --eval_episodes 10 --load_diffusion_path ${diff_path} --num_diffusion_iters 5 --horizon 40 --rcsl-epoch 100 \
-#         --task_weight ${task_weight}
-# done
+task_weight=1.4
+for seed in 0 1
+do
+    CUDA_VISIBLE_DEVICES=0 python run_example/pickplace/run_diffusion_pickplace.py \
+        --task pickplace --num_workers 1 \
+        --eval_episodes 100 --load_diffusion_path ${diff_path} --num_diffusion_iters 5 --horizon 40 --rcsl-epoch 1000 \
+        --task_weight ${task_weight} &
+done
+
+for seed in 2 3
+do
+    CUDA_VISIBLE_DEVICES=1 python run_example/pickplace/run_diffusion_pickplace.py \
+        --task pickplace --num_workers 1 \
+        --eval_episodes 100 --load_diffusion_path ${diff_path} --num_diffusion_iters 5 --horizon 40 --rcsl-epoch 1000 \
+        --task_weight ${task_weight} &
+done
+wait
 
 # for task_weight in 1.5
 # do
@@ -19,11 +30,10 @@ rollout_path="logs/pickplace_easy/test_dyn/rollout_true/timestamp_23-0916-222425
 #         --task_weight ${task_weight}
 # done
 
-python run_example/pickplace/run_regress_ctg_pickplace.py \
-    --task 'pickplace_easy' \
-    --rollout_ckpt_path ${rollout_path} \
-    --eval_episodes 50 --horizon 40 --rcsl-epoch 100 \
-    --output_bins 512
+# python run_example/pickplace/run_regress_ctg_pickplace.py \
+#     --task 'pickplace_easy' \
+#     --eval_episodes 100 --horizon 40 --rcsl-epoch 1000 \
+#     --output_bins 512
 
 # d_path="log/maze/combo/seed_1&timestamp_23-0809-143727/model"
 # algo=mopo

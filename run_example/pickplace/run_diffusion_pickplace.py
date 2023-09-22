@@ -58,11 +58,11 @@ walker2d-medium-expert-v2: rollout-length=1, cql-weight=5.0
 def get_args():
     parser = argparse.ArgumentParser()
     # general
-    parser.add_argument("--algo-name", type=str, default="diffusion")
+    parser.add_argument("--algo-name", type=str, default="rcsl_diffusion")
     parser.add_argument("--task", type=str, default="pickplace", help="maze") # Self-constructed environment
     parser.add_argument('--debug',action='store_true', help='Print debuuging info if true')
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--num_workers", type=int, default=6, help="Dataloader workers, align with cpu number")
+    parser.add_argument("--num_workers", type=int, default=4, help="Dataloader workers, align with cpu number")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
 
     # env config (pickplace)
@@ -119,6 +119,12 @@ def get_args():
 def train(args=get_args()):
     print(args)
 
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+    torch.backends.cudnn.deterministic = True
+
     # log
     # log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args))
     # # key: output file name, value: output handler type
@@ -143,9 +149,9 @@ def train(args=get_args()):
         # print(args.obs_shape)
         env = roboverse.make('Widow250PickTray-v0')
         env = SimpleObsWrapper(env)
-        v_env = gym.vector.SyncVectorEnv([lambda: SimpleObsWrapper(roboverse.make('Widow250PickTray-v0')) for t in range(args.eval_episodes)])
-        env2 = roboverse.make('Widow250PickTray-v0')
-        env2 = SimpleObsWrapper(env2)
+        # v_env = gym.vector.SyncVectorEnv([lambda: SimpleObsWrapper(roboverse.make('Widow250PickTray-v0')) for t in range(args.eval_episodes)])
+        # env2 = roboverse.make('Widow250PickTray-v0')
+        # env2 = SimpleObsWrapper(env2)
         obs_space = env.observation_space
         args.obs_shape = obs_space.shape
         obs_dim = np.prod(args.obs_shape)
@@ -192,13 +198,8 @@ def train(args=get_args()):
     # args.max_action = env.action_space.high[0]
 
     # seed
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    torch.cuda.manual_seed_all(args.seed)
-    torch.backends.cudnn.deterministic = True
     env.reset(seed = args.seed)
-    env2.reset(seed = args.seed)
+    # env2.reset(seed = args.seed)
 
     # rcsl_backbone = MLP(input_dim=obs_dim+1, hidden_dims=args.rcsl_hidden_dims, output_dim=args.action_dim)
 
@@ -260,7 +261,7 @@ def train(args=get_args()):
     policy_trainer = RcslPolicyTrainer_v2(
         policy = diffusion_policy,
         eval_env = env,
-        eval_env2 = v_env,
+        # eval_env2 = v_env,
         offline_dataset = dataset,
         rollout_dataset = None,
         goal = 0,
