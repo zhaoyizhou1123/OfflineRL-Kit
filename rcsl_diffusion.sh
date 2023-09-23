@@ -7,16 +7,18 @@ task_weight=1.4
 for seed in 0 1
 do
     CUDA_VISIBLE_DEVICES=0 python run_example/pickplace/run_diffusion_pickplace.py \
-        --task pickplace --num_workers 1 \
-        --eval_episodes 100 --load_diffusion_path ${diff_path} --num_diffusion_iters 5 --horizon 40 --rcsl-epoch 1000 \
+        --seed ${seed} \
+        --task pickplace --num_workers 2 \
+        --eval_episodes 100 --load_diffusion_path ${diff_path} --num_diffusion_iters 5 --horizon 40 --rcsl-epoch 200 \
         --task_weight ${task_weight} &
 done
 
 for seed in 2 3
 do
     CUDA_VISIBLE_DEVICES=1 python run_example/pickplace/run_diffusion_pickplace.py \
-        --task pickplace --num_workers 1 \
-        --eval_episodes 100 --load_diffusion_path ${diff_path} --num_diffusion_iters 5 --horizon 40 --rcsl-epoch 1000 \
+        --seed ${seed} \
+        --task pickplace --num_workers 2 \
+        --eval_episodes 100 --load_diffusion_path ${diff_path} --num_diffusion_iters 5 --horizon 40 --rcsl-epoch 200 \
         --task_weight ${task_weight} &
 done
 wait

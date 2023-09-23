@@ -12,10 +12,11 @@ rollout_path=None
 #     --task pickplace \
 #     --load-dynamics-path ${dyn_path}
 
-# python run_example/pickplace/run_cql_pickplace.py \
-#     --task pickplace
+python run_example/pickplace/run_cql_pickplace.py \
+    --task pickplace \
+    --hidden-dims 1024 1024 1024
 
-python run_example/pickplace/run_regress_pickplace.py \
-    --num_workers 4 \
-    --algo-name rcsl_regress_gauss \
-    --task pickplace
+# python run_example/pickplace/run_regress_pickplace.py \
+#     --num_workers 4 \
+#     --algo-name rcsl_regress_gauss \
+#     --task pickplace
