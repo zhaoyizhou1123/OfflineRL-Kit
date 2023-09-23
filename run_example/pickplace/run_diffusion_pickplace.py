@@ -280,7 +280,7 @@ def train(args=get_args()):
     )
     
     # print(f"Start evaluate")
-    policy_trainer.train()
+    policy_trainer.train(last_eval=True)
     # result = policy_trainer._evaluate()
     # print(result)
 

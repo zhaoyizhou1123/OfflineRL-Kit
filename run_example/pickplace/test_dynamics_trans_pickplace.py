@@ -308,11 +308,11 @@ def train(args=get_args()):
             # dynamics.load(args.load_dynamics_path)
 
             # temporary
-            dynamics.load(args.load_dynamics_path, load_type='obs')
-            dynamics.train_r(dyn_dataset, logger, max_epochs_since_update=5, max_epochs=80)
+            # dynamics.load(args.load_dynamics_path, load_type='obs')
+            # dynamics.train_r(dyn_dataset, logger, max_epochs_since_update=5, max_epochs=80)
         else: 
             print(f"Train dynamics")
-            dynamics.train(dyn_dataset, logger, max_epochs_since_update=5, max_epochs=50)
+            dynamics.train(dyn_dataset, logger, max_epochs_since_update=5, max_epochs=80)
             # dynamics.train_r(dyn_dataset, logger, max_epochs_since_update=5, max_epochs=80)
             # raise NotImplementedError
         

@@ -627,7 +627,10 @@ class RcslPolicyTrainer_v2(RcslPolicyTrainer):
     ) -> None:
         super().__init__(*args, **kwargs)
 
-    def train(self, holdout_ratio: float = 0.2) -> Dict[str, float]:
+    def train(self, holdout_ratio: float = 0.2, last_eval = False) -> Dict[str, float]:
+        '''
+        last_eval: If True, only evaluates at the last epoch
+        '''
         start_time = time.time()
 
         num_timesteps = 0
@@ -670,11 +673,12 @@ class RcslPolicyTrainer_v2(RcslPolicyTrainer):
         # eval_info = self._evaluate_vector()
         # ep_reward_mean, ep_reward_std = np.mean(eval_info["eval_vec/episode_reward"]), np.std(eval_info["eval_vec/episode_reward"])
         # print(f"Mean: {ep_reward_mean}, std: {ep_reward_std}")
-        eval_info = self._evaluate()
-        ep_reward_mean, ep_reward_std = np.mean(eval_info["eval/episode_reward"]), np.std(eval_info["eval/episode_reward"])
-        print(f"Mean: {ep_reward_mean}, std: {ep_reward_std}")
+        # eval_info = self._evaluate()
+        # ep_reward_mean, ep_reward_std = np.mean(eval_info["eval/episode_reward"]), np.std(eval_info["eval/episode_reward"])
+        # print(f"Mean: {ep_reward_mean}, std: {ep_reward_std}")
 
-        best_ep_reward_mean = ep_reward_mean
+        # best_ep_reward_mean = ep_reward_mean
+        best_ep_reward_mean = 1e10
         best_policy_dict = self.policy.state_dict()
         for e in range(1, self._epoch + 1):
 
@@ -725,33 +729,43 @@ class RcslPolicyTrainer_v2(RcslPolicyTrainer):
             # ep_length_mean_vec, ep_length_std_vec = np.mean(eval_vec_info["eval_vec/episode_length"]), np.std(eval_vec_info["eval_vec/episode_length"])
             # pick_success_vec = np.mean(eval_vec_info["eval_vec/pick_success"])
 
-            eval_info = self._evaluate()
-            ep_reward_mean, ep_reward_std = np.mean(eval_info["eval/episode_reward"]), np.std(eval_info["eval/episode_reward"])
-            ep_reward_max, ep_reward_min = np.max(eval_info["eval/episode_reward"]), np.min(eval_info["eval/episode_reward"])
-            ep_length_mean, ep_length_std = np.mean(eval_info["eval/episode_length"]), np.std(eval_info["eval/episode_length"])
-            pick_success = np.mean(eval_info["eval/pick_success"])
+            if last_eval and e < self._epoch: # When last_eval is True, only evaluate on last epoch
+                pass
+            else:
+                eval_info = self._evaluate()
+                ep_reward_mean, ep_reward_std = np.mean(eval_info["eval/episode_reward"]), np.std(eval_info["eval/episode_reward"])
+                ep_reward_max, ep_reward_min = np.max(eval_info["eval/episode_reward"]), np.min(eval_info["eval/episode_reward"])
+                ep_length_mean, ep_length_std = np.mean(eval_info["eval/episode_length"]), np.std(eval_info["eval/episode_length"])
+                pick_success = np.mean(eval_info["eval/pick_success"])
 
-            if not hasattr(self.eval_env, "get_normalized_score"): # gymnasium_env does not have normalized score
-                last_10_performance.append(ep_reward_mean)
-                self.logger.logkv("eval/episode_reward", ep_reward_mean)
-                self.logger.logkv("eval/episode_reward_std", ep_reward_std)  
-                self.logger.logkv("eval/pick_success", pick_success)    
-                # self.logger.logkv("eval_vec/episode_reward", ep_reward_mean_vec)
-                # self.logger.logkv("eval_vec/episode_reward_std", ep_reward_std_vec)   
-                # self.logger.logkv("eval_vec/pick_success", pick_success_vec)
-                    
-            else:       
-                norm_ep_rew_mean = self.eval_env.get_normalized_score(ep_reward_mean) * 100
-                norm_ep_rew_std = self.eval_env.get_normalized_score(ep_reward_std) * 100
-                norm_ep_rew_max = self.eval_env.get_normalized_score(ep_reward_max) * 100
-                norm_ep_rew_min = self.eval_env.get_normalized_score(ep_reward_min) * 100
-                last_10_performance.append(norm_ep_rew_mean)
-                self.logger.logkv("eval/normalized_episode_reward", norm_ep_rew_mean)
-                self.logger.logkv("eval/normalized_episode_reward_std", norm_ep_rew_std)
-                self.logger.logkv("eval/normalized_episode_reward_max", norm_ep_rew_max)
-                self.logger.logkv("eval/normalized_episode_reward_min", norm_ep_rew_min)
-            self.logger.logkv("eval/episode_length", ep_length_mean)
-            self.logger.logkv("eval/episode_length_std", ep_length_std)
+                if not hasattr(self.eval_env, "get_normalized_score"): # gymnasium_env does not have normalized score
+                    last_10_performance.append(ep_reward_mean)
+                    self.logger.logkv("eval/episode_reward", ep_reward_mean)
+                    self.logger.logkv("eval/episode_reward_std", ep_reward_std)  
+                    self.logger.logkv("eval/pick_success", pick_success)    
+                    # self.logger.logkv("eval_vec/episode_reward", ep_reward_mean_vec)
+                    # self.logger.logkv("eval_vec/episode_reward_std", ep_reward_std_vec)   
+                    # self.logger.logkv("eval_vec/pick_success", pick_success_vec)
+                        
+                else:       
+                    norm_ep_rew_mean = self.eval_env.get_normalized_score(ep_reward_mean) * 100
+                    norm_ep_rew_std = self.eval_env.get_normalized_score(ep_reward_std) * 100
+                    norm_ep_rew_max = self.eval_env.get_normalized_score(ep_reward_max) * 100
+                    norm_ep_rew_min = self.eval_env.get_normalized_score(ep_reward_min) * 100
+                    last_10_performance.append(norm_ep_rew_mean)
+                    self.logger.logkv("eval/normalized_episode_reward", norm_ep_rew_mean)
+                    self.logger.logkv("eval/normalized_episode_reward_std", norm_ep_rew_std)
+                    self.logger.logkv("eval/normalized_episode_reward_max", norm_ep_rew_max)
+                    self.logger.logkv("eval/normalized_episode_reward_min", norm_ep_rew_min)
+                self.logger.logkv("eval/episode_length", ep_length_mean)
+                self.logger.logkv("eval/episode_length_std", ep_length_std)
+
+                # save checkpoint
+                if ep_reward_mean >= best_ep_reward_mean:
+                    best_ep_reward_mean = ep_reward_mean
+                    best_policy_dict = self.policy.state_dict()
+                    torch.save(self.policy.state_dict(), os.path.join(self.logger.checkpoint_dir, "policy_best.pth"))
+
 
             # if self.eval_env2 is not None:
             #     eval_info_no_fix = self._evaluate_no_fix_seed()
@@ -773,11 +787,6 @@ class RcslPolicyTrainer_v2(RcslPolicyTrainer):
             self.logger.set_timestep(num_timesteps)
             self.logger.dumpkvs(exclude=["dynamics_training_progress"])
         
-            # save checkpoint
-            if ep_reward_mean >= best_ep_reward_mean:
-                best_ep_reward_mean = ep_reward_mean
-                best_policy_dict = self.policy.state_dict()
-                torch.save(self.policy.state_dict(), os.path.join(self.logger.checkpoint_dir, "policy_best.pth"))
 
         self.logger.log("total time: {:.2f}s".format(time.time() - start_time))
 

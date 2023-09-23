@@ -8,6 +8,7 @@ from offlinerlkit.modules.rcsl_module import RcslModule
 from offlinerlkit.modules.autoregressive_dynamics_module import AutoregressiveDynamicsModel
 from offlinerlkit.modules.transformer_dynamics_module import TransformerDynamicsModel
 from offlinerlkit.modules.reward_module import RewardDynamicsModel
+from offlinerlkit.modules.transformer_dynamics_module_v2 import TransformerDynamicsModel_v2
 
 
 __all__ = [
@@ -22,5 +23,6 @@ __all__ = [
     "RcslModule",
     "AutoregressiveDynamicsModel",
     "TransformerDynamicsModel",
-    "RewardDynamicsModel"
+    "RewardDynamicsModel",
+    "TransformerDynamicsModel_v2"
 ]

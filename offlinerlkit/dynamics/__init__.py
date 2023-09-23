@@ -4,6 +4,7 @@ from offlinerlkit.dynamics.rnn_dynamics import RNNDynamics
 from offlinerlkit.dynamics.mujoco_oracle_dynamics import MujocoOracleDynamics
 from offlinerlkit.dynamics.autoregressive_dynamics import AutoregressiveDynamics
 from offlinerlkit.dynamics.transformer_dynamics import TransformerDynamics
+from offlinerlkit.dynamics.transformer_dynamics_v2 import TransformerDynamics_v2
 
 
 __all__ = [
@@ -12,5 +13,6 @@ __all__ = [
     "RNNDynamics",
     "MujocoOracleDynamics",
     "AutoregressiveDynamics",
-    "TransformerDynamics"
+    "TransformerDynamics",
+    "TransformerDynamics_v2"
 ]
