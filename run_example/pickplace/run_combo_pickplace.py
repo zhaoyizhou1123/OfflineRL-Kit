@@ -23,6 +23,7 @@ from offlinerlkit.utils.logger import Logger, make_log_dirs
 from offlinerlkit.policy_trainer import MBPolicyTrainer
 from offlinerlkit.policy import COMBOPolicy
 from offlinerlkit.utils.pickplace_utils import SimpleObsWrapper, get_pickplace_dataset
+from offlinerlkit.utils.none_or_str import none_or_str
 # from pointmaze.utils.trajectory import Trajs2Dict
 
 
@@ -44,7 +45,7 @@ walker2d-medium-expert-v2: rollout-length=1, cql-weight=5.0
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--algo-name", type=str, default="combo")
-    parser.add_argument("--task", type=str, default="pickplace_easy", help="pickplace") # Self-constructed environment
+    parser.add_argument("--task", type=str, default="pickplace", help="pickplace") # Self-constructed environment
 
     # env config (pickplace)
     parser.add_argument('--data_dir', type=str, default='./dataset')
@@ -72,7 +73,7 @@ def get_args():
     parser.add_argument("--target-entropy", type=int, default=None)
     parser.add_argument("--alpha-lr", type=float, default=1e-4)
 
-    parser.add_argument("--cql-weight", type=float, default=5.0)
+    parser.add_argument("--cql-weight", type=float, default=1.0)
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--max-q-backup", type=bool, default=False)
     parser.add_argument("--deterministic-backup", type=bool, default=True)
@@ -93,11 +94,11 @@ def get_args():
     parser.add_argument("--rollout-length", type=int, default=5)
     parser.add_argument("--model-retain-epochs", type=int, default=5)
     parser.add_argument("--real-ratio", type=float, default=0.5)
-    parser.add_argument("--load-dynamics-path", type=str, default=None)
+    parser.add_argument("--load-dynamics-path", type=none_or_str, default=None)
 
     parser.add_argument("--epoch", type=int, default=200)
     parser.add_argument("--step-per-epoch", type=int, default=1000)
-    parser.add_argument("--eval_episodes", type=int, default=10)
+    parser.add_argument("--eval_episodes", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
 
@@ -281,7 +282,8 @@ def train(args=get_args()):
         eval_episodes=args.eval_episodes,
         lr_scheduler=lr_scheduler,
         horizon = args.horizon,
-        has_terminal=False
+        has_terminal=False,
+        binary_ret=True
     )
 
     # train
@@ -289,7 +291,7 @@ def train(args=get_args()):
         print(f"Train dynamics")
         dynamics.train(real_buffer.sample_all(), logger, max_epochs_since_update=5)
     
-    policy_trainer.train()
+    policy_trainer.train(last_eval=True)
 
 
 if __name__ == "__main__":

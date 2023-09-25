@@ -7,6 +7,8 @@ import roboverse
 
 import numpy as np
 import torch
+import os
+import pickle
 
 
 from offlinerlkit.nets import MLP
@@ -17,6 +19,8 @@ from offlinerlkit.utils.logger import Logger, make_log_dirs
 from offlinerlkit.policy_trainer import MFPolicyTrainer
 from offlinerlkit.policy import CQLPolicy
 from offlinerlkit.utils.pickplace_utils import SimpleObsWrapper, get_pickplace_dataset
+from offlinerlkit.utils.none_or_str import none_or_str
+
 
 
 """
@@ -27,11 +31,13 @@ cql-weight=5.0, temperature=1.0 for all D4RL-Gym tasks
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--algo-name", type=str, default="cql")
+    parser.add_argument("--algo-name", type=str, default="cql_rollout")
     parser.add_argument("--task", type=str, default="pickplace")
     # env config (pickplace)
-    parser.add_argument('--data_dir', type=str, default='./dataset')
+    # parser.add_argument('--data_dir', type=str, default='./dataset')
     parser.add_argument('--horizon', type=int, default=40, help="max path length for pickplace")
+    parser.add_argument('--rollout_ckpt_path', type=none_or_str, default=None, help="./dataset/rollout-s0.dat, file path, used to load/store rollout trajs" )
+    parser.add_argument('--last_eval', action='store_false', help="Show eval result for every epoch if False")
 
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--hidden-dims", type=int, nargs='*', default=[256, 256, 256])
@@ -99,7 +105,21 @@ def train(args=get_args()):
         # offline_dataset, init_obss_dataset = get_pickplace_dataset(args.data_dir, task_weight=args.task_weight)
         # diff_dataset, _ = get_pickplace_dataset(args.data_dir, sample_ratio =args.sample_ratio, task_weight=args.task_weight)
         # dyn_dataset, init_obss_dataset = get_pickplace_dataset(args.data_dir)
-        dataset, init_obss_dataset = get_pickplace_dataset(args.data_dir)
+        # dataset, init_obss_dataset = get_pickplace_dataset(args.data_dir)
+        if args.rollout_ckpt_path is not None:
+            # print(f"Will save rollout trajectories to dir {args.rollout_ckpt_path}")
+            # os.makedirs(args.rollout_ckpt_path, exist_ok=True)
+            # data_path = os.path.join(args.rollout_ckpt_path, "rollout.dat")
+            # if os.path.exists(data_path): # Load ckpt_data
+            ckpt_dict = pickle.load(open(args.rollout_ckpt_path,"rb")) # checkpoint in dict type
+            rollout_data_all = ckpt_dict['data'] # should be dict
+            num_traj_all = ckpt_dict['num_traj']
+            # returns_all = ckpt_dict['return']
+            # start_epoch = ckpt_dict['epoch'] + 1
+            # trajs = ckpt_dict
+            print(f"Loaded checkpoint. Collected {num_traj_all} valid trajectories.")
+        else:
+            raise NotImplementedError
         # args.max_action = env.action_space.high[0]
         # print(args.action_dim, type(args.action_dim
 
@@ -158,14 +178,14 @@ def train(args=get_args()):
 
     # create buffer
     buffer = ReplayBuffer(
-        buffer_size=len(dataset["observations"]),
+        buffer_size=len(rollout_data_all["observations"]),
         obs_shape=args.obs_shape,
         obs_dtype=np.float32,
         action_dim=args.action_dim,
         action_dtype=np.float32,
         device=args.device
     )
-    buffer.load_dataset(dataset)
+    buffer.load_dataset(rollout_data_all)
 
     # log
     log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args))
@@ -194,7 +214,7 @@ def train(args=get_args()):
     )
 
     # train
-    policy_trainer.train(last_eval=True)
+    policy_trainer.train(last_eval=args.last_eval)
 
 
 if __name__ == "__main__":

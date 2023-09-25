@@ -32,7 +32,8 @@ class MBPolicyTrainer:
         lr_scheduler: Optional[torch.optim.lr_scheduler._LRScheduler] = None,
         dynamics_update_freq: int = 0,
         horizon: Optional[int] = None,
-        has_terminal = False
+        has_terminal = False,
+        binary_ret = False
     ) -> None:
         self.policy = policy
         self.eval_env = eval_env
@@ -55,8 +56,9 @@ class MBPolicyTrainer:
         self.is_gymnasium_env = hasattr(self.eval_env, "get_true_observation")
         assert (not self.is_gymnasium_env) or (self.horizon is not None), "Horizon must be specified for Gymnasium env"
         self.has_terminal = has_terminal
+        self.binary_ret = binary_ret
 
-    def train(self) -> Dict[str, float]:
+    def train(self, last_eval = False) -> Dict[str, float]:
         start_time = time.time()
 
         num_timesteps = 0
@@ -102,23 +104,26 @@ class MBPolicyTrainer:
             if self.lr_scheduler is not None:
                 self.lr_scheduler.step()
             
-            # evaluate current policy
-            eval_info = self._evaluate()
-            ep_reward_mean, ep_reward_std = np.mean(eval_info["eval/episode_reward"]), np.std(eval_info["eval/episode_reward"])
-            ep_length_mean, ep_length_std = np.mean(eval_info["eval/episode_length"]), np.std(eval_info["eval/episode_length"])
+            if last_eval and e < self._epoch: # When last_eval is True, only evaluate on last epoch
+                pass
+            else:
+                # evaluate current policy
+                eval_info = self._evaluate()
+                ep_reward_mean, ep_reward_std = np.mean(eval_info["eval/episode_reward"]), np.std(eval_info["eval/episode_reward"])
+                ep_length_mean, ep_length_std = np.mean(eval_info["eval/episode_length"]), np.std(eval_info["eval/episode_length"])
 
-            if not hasattr(self.eval_env, "get_normalized_score"): # gymnasium_env does not have normalized score
-                last_10_performance.append(ep_reward_mean)
-                self.logger.logkv("eval/episode_reward", ep_reward_mean)
-                self.logger.logkv("eval/episode_reward_std", ep_reward_std)         
-            else:       
-                norm_ep_rew_mean = self.eval_env.get_normalized_score(ep_reward_mean) * 100
-                norm_ep_rew_std = self.eval_env.get_normalized_score(ep_reward_std) * 100
-                last_10_performance.append(norm_ep_rew_mean)
-                self.logger.logkv("eval/normalized_episode_reward", norm_ep_rew_mean)
-                self.logger.logkv("eval/normalized_episode_reward_std", norm_ep_rew_std)
-            self.logger.logkv("eval/episode_length", ep_length_mean)
-            self.logger.logkv("eval/episode_length_std", ep_length_std)
+                if not hasattr(self.eval_env, "get_normalized_score"): # gymnasium_env does not have normalized score
+                    last_10_performance.append(ep_reward_mean)
+                    self.logger.logkv("eval/episode_reward", ep_reward_mean)
+                    self.logger.logkv("eval/episode_reward_std", ep_reward_std)         
+                else:       
+                    norm_ep_rew_mean = self.eval_env.get_normalized_score(ep_reward_mean) * 100
+                    norm_ep_rew_std = self.eval_env.get_normalized_score(ep_reward_std) * 100
+                    last_10_performance.append(norm_ep_rew_mean)
+                    self.logger.logkv("eval/normalized_episode_reward", norm_ep_rew_mean)
+                    self.logger.logkv("eval/normalized_episode_reward_std", norm_ep_rew_std)
+                self.logger.logkv("eval/episode_length", ep_length_mean)
+                self.logger.logkv("eval/episode_length_std", ep_length_std)
             self.logger.set_timestep(num_timesteps)
             self.logger.dumpkvs(exclude=["dynamics_training_progress"])
         
@@ -166,6 +171,8 @@ class MBPolicyTrainer:
 
                     # if terminal:
                     #     break # Stop current epoch
+                if self.binary_ret:
+                    episode_reward = 1 if episode_reward >= 1 else 0
                 eval_ep_info_buffer.append(
                     {"episode_reward": episode_reward, "episode_length": episode_length}
                 )
@@ -192,6 +199,8 @@ class MBPolicyTrainer:
                 obs = next_obs
 
                 if terminal: # Episode finishes
+                    if self.binary_ret:
+                        episode_reward = 1 if episode_reward >= 1 else 0
                     eval_ep_info_buffer.append(
                         {"episode_reward": episode_reward, "episode_length": episode_length}
                     )

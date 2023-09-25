@@ -22,6 +22,7 @@ from offlinerlkit.policy.others.autoregressive import AutoregressivePolicy
 from offlinerlkit.policy.others.autoregressive_categorical import AutoregressiveCategoricalPolicy
 from offlinerlkit.policy.rcsl.rcsl_gauss import RcslGaussianPolicy
 from offlinerlkit.policy.rcsl.rcsl import RcslPolicy
+from offlinerlkit.policy.rcsl.rcsl_ce import RcslCEPolicy
 
 __all__ = [
     "BasePolicy",
@@ -41,5 +42,6 @@ __all__ = [
     "RcslPolicy",
     "RcslGaussianPolicy",
     "AutoregressivePolicy",
-    "AutoregressiveCategoricalPolicy"
+    "AutoregressiveCategoricalPolicy",
+    "RcslCEPolicy"
 ]

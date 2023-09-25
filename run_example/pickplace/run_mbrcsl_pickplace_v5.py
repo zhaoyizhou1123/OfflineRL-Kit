@@ -571,7 +571,7 @@ def train(args=get_args()):
         # device = args.device
     )
 
-    policy_trainer.train()
+    policy_trainer.train(last_eval=True)
 
 
 if __name__ == "__main__":

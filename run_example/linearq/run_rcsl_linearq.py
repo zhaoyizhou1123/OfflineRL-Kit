@@ -26,11 +26,11 @@ from offlinerlkit.utils.dataset import ObsActDataset
 from offlinerlkit.buffer import ReplayBuffer
 from offlinerlkit.utils.logger import Logger, make_log_dirs
 from offlinerlkit.utils.diffusion_logger import setup_logger
-from offlinerlkit.policy_trainer import RcslPolicyTrainer
+from offlinerlkit.policy_trainer import RcslPolicyTrainer, LinearqRcslPolicyTrainer
 from offlinerlkit.utils.trajectory import Trajectory
 from offlinerlkit.utils.none_or_str import none_or_str
-from offlinerlkit.policy import DiffusionBC, RcslPolicy
-from offlinerlkit.env.linearq import Linearq
+from offlinerlkit.policy import DiffusionBC, RcslPolicy, RcslCEPolicy
+from offlinerlkit.env.linearq import Linearq, Linearq_v2
 
 # from rvs.policies import RvS
 
@@ -74,7 +74,7 @@ def get_args():
     # parser.add_argument('--tb_path', type=str, default=None, help="./logs/stitch/, Folder to tensorboard logs" )
     # parser.add_argument('--env_type', type=str, default='pointmaze', help='pointmaze or ?')
     parser.add_argument('--algo', type=str, default='stitch-mlp', help="rcsl-mlp, rcsl-dt or stitch-mlp, stitch-dt")
-    parser.add_argument('--horizon', type=int, default=1000, help="horizon for pointmaze, or max timesteps for d4rl")
+    # parser.add_argument('--horizon', type=int, default=1000, help="horizon for pointmaze, or max timesteps for d4rl")
 
 
     
@@ -127,10 +127,10 @@ def get_args():
     # RCSL policy (mlp)
     parser.add_argument("--rcsl-hidden-dims", type=int, nargs='*', default=[20])
     parser.add_argument("--rcsl-lr", type=float, default=1e-3)
-    parser.add_argument("--rcsl-batch", type=int, default=256)
-    parser.add_argument("--rcsl-epoch", type=int, default=50)
+    parser.add_argument("--rcsl-batch", type=int, default=1024)
+    parser.add_argument("--rcsl-epoch", type=int, default=30)
     parser.add_argument("--rcsl-step-per-epoch", type=int, default=1000)
-    parser.add_argument("--eval_episodes", type=int, default=10)
+    parser.add_argument("--eval_episodes", type=int, default=1)
     parser.add_argument("--fix_eval_seed", action="store_true", help="True to fix the seed for every eval")
 
     parser.add_argument("--batch-size", type=int, default=256)
@@ -161,7 +161,11 @@ def train(args=get_args()):
         dataset, init_obss_dataset, max_offline_return = traj_rtg_datasets(env)
         obs_space = env.observation_space
         args.obs_shape = (1,)
-        print(args.obs_shape)
+        # print(args.obs_shape)
+        args.horizon = env.horizon
+
+        args.rcsl_batch = len(dataset['rewards']) // 100
+        print(args.horizon)
     else:
         raise NotImplementedError
 
@@ -267,6 +271,7 @@ def train(args=get_args()):
         horizon = args.horizon,
         num_workers = args.num_workers,
         # device = args.device
+        eval_episodes=args.eval_episodes
     )
     
     policy_trainer.train()

@@ -379,13 +379,13 @@ class RcslPolicyTrainer:
             ep_reward_mean, ep_reward_std = np.mean(eval_info["eval/episode_reward"]), np.std(eval_info["eval/episode_reward"])
             ep_reward_max, ep_reward_min = np.max(eval_info["eval/episode_reward"]), np.min(eval_info["eval/episode_reward"])
             ep_length_mean, ep_length_std = np.mean(eval_info["eval/episode_length"]), np.std(eval_info["eval/episode_length"])
-            pick_success = np.mean(eval_info["eval/pick_success"])
+            # pick_success = np.mean(eval_info["eval/pick_success"])
 
             if not hasattr(self.eval_env, "get_normalized_score"): # gymnasium_env does not have normalized score
                 last_10_performance.append(ep_reward_mean)
                 self.logger.logkv("eval/episode_reward", ep_reward_mean)
                 self.logger.logkv("eval/episode_reward_std", ep_reward_std)  
-                self.logger.logkv("eval/pick_success", pick_success)    
+                # self.logger.logkv("eval/pick_success", pick_success)    
                 # self.logger.logkv("eval_vec/episode_reward", ep_reward_mean_vec)
                 # self.logger.logkv("eval_vec/episode_reward_std", ep_reward_std_vec)   
                 # self.logger.logkv("eval_vec/pick_success", pick_success_vec)
@@ -468,6 +468,9 @@ class RcslPolicyTrainer:
                         next_obs, reward, terminal, info = self.eval_env.step(action.flatten())
                     if is_gymnasium_env:
                         next_obs = self.eval_env.get_true_observation(next_obs)
+
+                    if timestep == 161:
+                        print(f"Timestep {timestep}, action {action}")
                     # if num_episodes == 2 and timestep < 10:
                     #     print(f"Action {action}, next_obs {next_obs}, reward {reward}, rtg {rtg.item()}")
                     episode_reward += reward
@@ -475,18 +478,19 @@ class RcslPolicyTrainer:
                     rtg = rtg - reward
                     episode_length += 1
 
-                    if info['grasp_success_target']: # pick okay
-                        pick_success = True
+                    # if info['grasp_success_target']: # pick okay
+                    #     # pick_success = True
 
                     obs = next_obs
 
                     # if terminal:
                     #     break # Stop current epoch
                 # print(episode_reward)
-                episode_reward = 1 if episode_reward > 0 else 0 # Clip to 1
+                # episode_reward = 1 if episode_reward > 0 else 0 # Clip to 1
                 eval_ep_info_buffer.append(
                     {"episode_reward": episode_reward, "episode_length": episode_length,
-                     "pick_success": float(pick_success)}
+                    #  "pick_success": float(pick_success)
+                    }
                 )
                 num_episodes +=1
                 episode_reward, episode_length = 0, 0
@@ -529,7 +533,7 @@ class RcslPolicyTrainer:
         return {
             "eval/episode_reward": [ep_info["episode_reward"] for ep_info in eval_ep_info_buffer],
             "eval/episode_length": [ep_info["episode_length"] for ep_info in eval_ep_info_buffer],
-            "eval/pick_success": [ep_info["pick_success"] for ep_info in eval_ep_info_buffer]
+            # "eval/pick_success": [ep_info["pick_success"] for ep_info in eval_ep_info_buffer]
         }
   
     def _evaluate_no_fix_seed(self) -> Dict[str, List[float]]:

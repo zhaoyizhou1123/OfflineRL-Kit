@@ -25,30 +25,30 @@ rollout_path=None
 #         --eval_episodes 50 --horizon 40 --rcsl-epoch 100 \
 #         --task_weight ${task_weight}
 # done
-for seed in 1 2 
+for seed in 1
 do
     CUDA_VISIBLE_DEVICES=0 python run_example/pickplace/run_mbrcsl_pickplace_v5.py \
-        --seed ${seed} --num_workers 2 \
+        --seed ${seed} --num_workers 6 \
         --task 'pickplace' --algo-name 'mbrcsl_trans_regress_final' --horizon 40 \
         --load-dynamics-path ${dyn_path} \
         --load_diffusion_path ${diff_path} --behavior_epoch 30 --sample_ratio 0.8 --task_weight 1.4 \
         --rollout_ckpt_path ${rollout_path} --rollout_epochs 30000 --num_need_traj 5000 --rollout-batch 200 \
-        --eval_episodes 100  --rcsl-epoch 200 &
+        --eval_episodes 100  --rcsl-epoch 200
     sleep 60
 done
 
-for seed in 3 0
-do
-    CUDA_VISIBLE_DEVICES=0 python run_example/pickplace/run_mbrcsl_pickplace_v5.py \
-        --seed ${seed} --num_workers 2 \
-        --task 'pickplace' --algo-name 'mbrcsl_trans_regress_final' --horizon 40 \
-        --load-dynamics-path ${dyn_path} \
-        --load_diffusion_path ${diff_path} --behavior_epoch 30 --sample_ratio 0.8 --task_weight 1.4 \
-        --rollout_ckpt_path ${rollout_path} --rollout_epochs 30000 --num_need_traj 5000 --rollout-batch 200 \
-        --eval_episodes 100  --rcsl-epoch 200 &
-    sleep 60
-done
-wait
+# for seed in 3 0
+# do
+#     CUDA_VISIBLE_DEVICES=0 python run_example/pickplace/run_mbrcsl_pickplace_v5.py \
+#         --seed ${seed} --num_workers 2 \
+#         --task 'pickplace' --algo-name 'mbrcsl_trans_regress_final' --horizon 40 \
+#         --load-dynamics-path ${dyn_path} \
+#         --load_diffusion_path ${diff_path} --behavior_epoch 30 --sample_ratio 0.8 --task_weight 1.4 \
+#         --rollout_ckpt_path ${rollout_path} --rollout_epochs 30000 --num_need_traj 5000 --rollout-batch 200 \
+#         --eval_episodes 100  --rcsl-epoch 200 &
+#     sleep 60
+# done
+# wait
 
 # for sample in 0.3
 # do
