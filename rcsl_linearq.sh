@@ -24,8 +24,8 @@ do
     for arch in 16
     do
         if [ "${arch}" -le "${size}" ]; then 
-            python run_example/linearq/run_rcsl_linearq.py --env_param ${size} --rcsl-hidden-dims ${arch} --num_workers 4 --rcsl-epoch 400 --algo-name "rcsl_revlinearq" 
-            # python run_example/linearq/run_cql_linearq.py --env_param ${size} --hidden-dims ${arch}
+            # python run_example/linearq/run_rcsl_linearq.py --env_param ${size} --rcsl-hidden-dims ${arch} --num_workers 4 --rcsl-epoch 400 --algo-name "rcsl_revlinearq" 
+            python run_example/linearq/run_cql_linearq.py --algo-name "cql_newenv" --env_param ${size} --hidden-dims ${arch}
         fi
     done
 done
