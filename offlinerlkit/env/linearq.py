@@ -149,18 +149,18 @@ class Linearq(gym.Env):
                 return s + 1
             elif s >= 2 * self.size_param + 1:
                 return 3 * self.size_param + 2
-            elif s % 2 == 1: # [u+1, 2u] and odd
+            elif s % 2 == 0: # [u+1, 2u] and even
                 return 3 * self.size_param + 2
-            else: # [u+1, 2u] and even
+            else: # [u+1, 2u] and odd
                 return 3 * self.size_param + 1
         else: # a==1
             if s == 3 * self.size_param + 2:
                 return 3 * self.size_param + 2
             elif s >= self.size_param + 1: # [u+1, 3u+1]
                 return s + 1
-            elif s % 2 == 1: # [0,u] and odd
+            elif s % 2 == 0: # [0,u] and even
                 return 3 * self.size_param + 2
-            else: # [0,u] and even
+            else: # [0,u] and odd
                 return 3 * self.size_param + 1
 
 
