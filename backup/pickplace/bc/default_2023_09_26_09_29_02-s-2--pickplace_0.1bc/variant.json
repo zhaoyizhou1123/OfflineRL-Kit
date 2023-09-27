@@ -1,0 +1,36 @@
+{
+  "K": 200,
+  "action_shape": [
+    8
+  ],
+  "activation_function": "relu",
+  "algo_name": "bc_pickplace",
+  "batch_size": 64,
+  "data_dir": "../../OfflineRL-Kit/dataset",
+  "data_file": "../maze/dataset/maze2_smds_acc.dat",
+  "data_ratio": 0.1,
+  "dataset": "medium",
+  "device": "cuda",
+  "dropout": 0.1,
+  "embed_dim": 128,
+  "env": "pickplace",
+  "horizon": 40,
+  "learning_rate": 0.0001,
+  "log_to_wandb": false,
+  "max_iters": 100,
+  "maze_config_file": "../maze/config/maze2_simple_moredata.json",
+  "mode": "normal",
+  "model_type": "bc",
+  "n_head": 1,
+  "n_layer": 3,
+  "num_eval_episodes": 10,
+  "num_steps_per_iter": 1000,
+  "obs_shape": [
+    17
+  ],
+  "pct_traj": 1.0,
+  "seed": 2,
+  "task": "pickplace",
+  "warmup_steps": 10000,
+  "weight_decay": 0.0001
+}
