@@ -17,11 +17,11 @@
 
 # done
 
-#  
+#  32 48 64 80 96 112 128 144 160s
 
 for size in 16 32 48 64 80 96 112 128 144 160
 do
-    for arch in 16
+    for arch in 8
     do
         if [ "${arch}" -le "${size}" ]; then 
             python run_example/linearq/run_rcsl_linearq.py --env_param ${size} --rcsl-hidden-dims ${arch} --num_workers 4 --rcsl-epoch 400 --algo-name "rcsl_revlinearq" 

@@ -16,3 +16,4 @@ logs
 !backup/*.out
 test.py
 dataset/
+*.png

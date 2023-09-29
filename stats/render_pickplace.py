@@ -13,6 +13,7 @@ import pickle
 from copy import deepcopy
 from typing import Dict, Tuple
 import roboverse
+import matplotlib.pyplot as plt
 
 
 # import __init__
@@ -24,7 +25,7 @@ from offlinerlkit.utils.termination_fns import get_termination_fn
 from offlinerlkit.utils.load_dataset import qlearning_dataset, traj_rtg_datasets
 from offlinerlkit.utils.config import Config
 from offlinerlkit.utils.dataset import ObsActDataset
-from offlinerlkit.utils.pickplace_utils import SimpleObsWrapper, get_pickplace_dataset
+from offlinerlkit.utils.pickplace_utils import SimpleObsWrapper, get_pickplace_dataset, get_true_obs
 from offlinerlkit.buffer import ReplayBuffer
 from offlinerlkit.utils.logger import Logger, make_log_dirs
 from offlinerlkit.utils.diffusion_logger import setup_logger
@@ -116,6 +117,16 @@ def get_args():
 
     return parser.parse_args()
 
+def plot(frame, filename):
+    frame = frame.reshape(48,3,48)
+    frame = np.transpose(frame, (1,2,0))
+    frame = np.transpose(frame, (1,2,0))
+    frame = (frame * 255).astype(np.ubyte)
+    print(type(frame), frame.shape)
+    # plt.plot(frame)
+    # plt.savefig(frame, filename)
+    plt.imsave(filename, frame)
+
 def train(args=get_args()):
     print(args)
 
@@ -148,14 +159,15 @@ def train(args=get_args()):
         # args.obs_shape = (1,)
         # print(args.obs_shape)
         env = roboverse.make('Widow250PickTray-v0')
-        env = SimpleObsWrapper(env)
+        # env = SimpleObsWrapper(env)
         # v_env = gym.vector.SyncVectorEnv([lambda: SimpleObsWrapper(roboverse.make('Widow250PickTray-v0')) for t in range(args.eval_episodes)])
         # env2 = roboverse.make('Widow250PickTray-v0')
         # env2 = SimpleObsWrapper(env2)
-        obs_space = env.observation_space
+        env_wrapped = SimpleObsWrapper(env)
+        obs_space = env_wrapped.observation_space
         args.obs_shape = obs_space.shape
         obs_dim = np.prod(args.obs_shape)
-        args.action_shape = env.action_space.shape
+        args.action_shape = env_wrapped.action_space.shape
         action_dim = np.prod(args.action_shape)
 
         dataset, init_obss = get_pickplace_dataset(args.data_dir, task_weight=args.task_weight)
@@ -198,7 +210,7 @@ def train(args=get_args()):
     # args.max_action = env.action_space.high[0]
 
     # seed
-    env.reset(seed = args.seed)
+    env.reset()
     # env2.reset(seed = args.seed)
 
     # rcsl_backbone = MLP(input_dim=obs_dim+1, hidden_dims=args.rcsl_hidden_dims, output_dim=args.action_dim)
@@ -247,41 +259,103 @@ def train(args=get_args()):
     # train
 
     # Creat policy trainer
-    rcsl_log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args))
-    # key: output file name, value: output handler type
-    rcsl_output_config = {
-        "consoleout_backup": "stdout",
-        "policy_training_progress": "csv",
-        "dynamics_training_progress": "csv",
-        "tb": "tensorboard"
-    }
-    rcsl_logger = Logger(rcsl_log_dirs, rcsl_output_config)
-    rcsl_logger.log_hyperparameters(vars(args))
+    # rcsl_log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args))
+    # # key: output file name, value: output handler type
+    # rcsl_output_config = {
+    #     "consoleout_backup": "stdout",
+    #     "policy_training_progress": "csv",
+    #     "dynamics_training_progress": "csv",
+    #     "tb": "tensorboard"
+    # }
+    # rcsl_logger = Logger(rcsl_log_dirs, rcsl_output_config)
+    # rcsl_logger.log_hyperparameters(vars(args))
 
-    policy_trainer = RcslPolicyTrainer_v2(
-        policy = diffusion_policy,
-        eval_env = env,
-        # eval_env2 = v_env,
-        offline_dataset = dataset,
-        rollout_dataset = None,
-        goal = 0,
-        logger = rcsl_logger,
-        seed = args.seed,
-        epoch = args.rcsl_epoch,
-        step_per_epoch = args.rcsl_step_per_epoch,
-        batch_size = args.rcsl_batch,
-        offline_ratio = 1.,
-        lr_scheduler = diff_lr_scheduler,
-        horizon = args.horizon,
-        num_workers = args.num_workers,
-        has_terminal = False,
-        eval_episodes = args.eval_episodes
-        # device = args.device
-    )
+    def _evaluate(eval_episodes: int = 1):
+        '''
+        Always set desired rtg to 0
+        '''
+        # Pointmaze obs has different format, needs to be treated differently
+        # if eval_episodes == -1:
+        #     real_eval_episodes = self._eval_episodes
+        # else:
+        real_eval_episodes = eval_episodes
+        is_gymnasium_env = False
+
+        env.reset() # Fix seed
+        
+        diffusion_policy.eval()
+        if is_gymnasium_env:
+            obs, _ = env.reset()
+            obs = env.get_true_observation(obs)
+        else:
+            obs = env.reset()
+
+        
+
+        frame = obs['image']
+        plot(frame, 'init.png')
+
+        obs = get_true_obs(obs)
+            
+
+        eval_ep_info_buffer = []
+        num_episodes = 0
+        episode_reward, episode_length = 0, 0
+        
+        picked = False
+        placed = True
+        while num_episodes < real_eval_episodes:
+            rtg = torch.tensor([[1]]).type(torch.float32)
+            pick_success = False
+            for timestep in range(40): # One epoch
+                # print(f"Timestep {timestep}, obs {obs}")
+                action = diffusion_policy.select_action(obs.reshape(1, -1), rtg)
+                if hasattr(env, "get_true_observation"): # gymnasium env 
+                    next_obs, reward, terminal, _, _ = env.step(action.flatten())
+                else:
+                    next_obs, reward, terminal, info = env.step(action.flatten())
+
+                if not picked and info['grasp_success'] :
+                    picked = True
+                    frame = next_obs['image']
+                    plot(frame)
+                elif not placed and info['place_success']:
+                    placed = True
+                    frame = next_obs['image']
+                    plot(frame)
+                if is_gymnasium_env:
+                    next_obs = env.get_true_observation(next_obs)
+                # if num_episodes == 2 and timestep < 10:
+                #     print(f"Action {action}, next_obs {next_obs}, reward {reward}, rtg {rtg.item()}")
+                episode_reward += reward
+                # No need to update return
+                rtg = rtg - reward
+                episode_length += 1
+
+                if info['grasp_success_target']: # pick okay
+                    pick_success = True
+
+                obs = get_true_obs(next_obs)
+
+                # if terminal:
+                #     break # Stop current epoch
+            # print(episode_reward)
+            episode_reward = 1 if episode_reward > 0 else 0 # Clip to 1
+            eval_ep_info_buffer.append(
+                {"episode_reward": episode_reward, "episode_length": episode_length,
+                    "pick_success": float(pick_success)}
+            )
+            num_episodes +=1
+            episode_reward, episode_length = 0, 0
+            if is_gymnasium_env:
+                obs, _ = env.reset()
+                obs = env.get_true_observation(obs)
+            else:
+                obs = env.reset()
     
     # print(f"Start evaluate")
     # policy_trainer.train(last_eval=True)
-    policy_trainer._evaluate()
+    _evaluate()
     # result = policy_trainer._evaluate()
     # print(result)
 
