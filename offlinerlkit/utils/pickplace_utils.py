@@ -5,6 +5,7 @@ import numpy as np
 import gym
 from gym.spaces import Box
 import os
+from collections import namedtuple
 
 def get_true_obs(obs: Dict[str, np.ndarray]) -> np.ndarray :
     '''
@@ -157,3 +158,60 @@ if __name__ == '__main__':
     # dic = {1: np.array([1,2])}
     # dicts = [dic, dic, dic]
     # print(flatten_dict(dicts,[1]))
+
+def get_pickplace_dataset_dt(data_dir: str, prior_weight: float =1., task_weight: float = 1., set_type: str = 'full', sample_ratio: float = 1.) -> Tuple[Dict, np.ndarray]:
+    '''
+    Concatenate prior_data and task_data
+    prior_weight and task_weight: weight of data point
+
+    Args:
+        set_type: 'prior', 'task', 'full'
+        sample_ratio: Ratio of trajectories sampled. Sometimes we want to train on a smaller dataset.
+
+    Return:
+        dataset: list trajs: namedtuple with keys "observations", "actions", "rewards", "returns", "timesteps" 
+        init_obss: np.ndarray (num_traj, obs_dim)
+    '''
+    SimpleTrajectory = namedtuple(
+    "SimpleTrajectory", ["observations", "actions", "rewards", "returns", "timesteps"])
+    with open(os.path.join(data_dir, 'pickplace_prior.npy'), "rb") as fp:
+        prior_data = np.load(fp, allow_pickle=True)
+    with open(os.path.join(data_dir, 'pickplace_task.npy'), "rb") as ft:
+        task_data = np.load(ft, allow_pickle=True)
+    set_weight(prior_data, prior_weight)
+    set_weight(task_data, task_weight)
+
+    # Sample trajectories
+    num_trajs_prior = int(len(prior_data) * sample_ratio)
+    idxs_prior = np.random.choice(len(prior_data), size=(num_trajs_prior), replace = False)
+    prior_data = prior_data[idxs_prior]
+
+    num_trajs_task = int(len(task_data) * sample_ratio)
+    idxs_task = np.random.choice(len(task_data), size=(num_trajs_task), replace = False)
+    task_data = task_data[idxs_task]
+
+    if set_type == 'full':
+        full_data = np.concatenate([prior_data, task_data], axis=0) # list of dict
+    elif set_type == 'prior':
+        full_data = prior_data
+    elif set_type =='task':
+        full_data = task_data
+    keys = ['observations', 'actions', 'rewards', 'next_observations', 'terminals', 'weights']
+
+    trajs = []
+    for traj in full_data:
+        last_reward = traj['rewards'][-1]
+        rewards = traj['rewards']
+        # print(f"obs: {type(traj['observations'][0])}")
+        # print(f"actions: {traj['actions'].shape}")
+        # print(f"rewards: {traj['rewards'].shape}")
+        simple_traj = SimpleTrajectory(
+            observations= [get_true_obs(obs) for obs in traj['observations']],
+            actions = traj['actions'],
+            rewards = rewards,
+            returns = [last_reward for _ in range(len(rewards))],
+            timesteps= list(range(len(rewards)))
+        )
+        trajs.append(simple_traj)
+    # print(f"Collected {len(trajs)} trajs")
+    return trajs

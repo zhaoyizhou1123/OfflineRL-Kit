@@ -62,7 +62,7 @@ def get_args():
     parser = argparse.ArgumentParser()
     # general
     parser.add_argument("--algo-name", type=str, default="mbrcsl_double_regress")
-    parser.add_argument("--task", type=str, default="pickplace", help="pickplace, pickplace_easy") # Self-constructed environment
+    parser.add_argument("--task", type=str, default="pickplace_easy", help="pickplace, pickplace_easy") # Self-constructed environment
     parser.add_argument("--dataset", type=none_or_str, default=None, help="../D4RL/dataset/halfcheetah/output.hdf5") # Self-constructed environment
     parser.add_argument('--debug',action='store_true', help='Print debuuging info if true')
     parser.add_argument("--seed", type=int, default=0)
@@ -263,137 +263,6 @@ def train(args=get_args()):
         # print(args.action_dim, type(args.action_dim
 
     env.reset(seed=args.seed)
-
-    # print(f"dynamics_hidden_dims = {args.dynamics_hidden_dims}")
-    # log
-    # log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part = "dynamics", record_params=['eval_episodes', 'task_weight', 'sample_ratio'])
-    # print(f"Logging dynamics to {log_dirs}")
-    # # key: output file name, value: output handler type
-    # output_config = {
-    #     "consoleout_backup": "stdout",
-    #     "policy_training_progress": "csv",
-    #     "dynamics_training_progress": "csv",
-    #     "tb": "tensorboard"
-    # }
-    # logger = Logger(log_dirs, output_config)
-    # logger.log_hyperparameters(vars(args))
-
-    # dynamics_model = EnsembleDynamicsModel(
-    #     obs_dim=obs_dim,
-    #     action_dim=action_dim,
-    #     hidden_dims=args.dynamics_hidden_dims,
-    #     num_ensemble=args.n_ensemble,
-    #     num_elites=args.n_elites,
-    #     weight_decays=args.dynamics_weight_decay,
-    #     device=args.device
-    # )
-    # dynamics_optim = torch.optim.Adam(
-    #     dynamics_model.parameters(),
-    #     lr=args.dynamics_lr
-    # )
-    # scaler = StandardScaler()
-    # termination_fn = get_termination_fn(task=args.task)
-    # dynamics = EnsembleDynamics(
-    #     dynamics_model,
-    #     dynamics_optim,
-    #     scaler,
-    #     termination_fn
-    # )
-
-    log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part = "dynamics_regress", record_params=['sample_ratio', 'task_weight'])
-    # key: output file name, value: output handler type
-    print(f"Logging dynamics to {log_dirs}")
-    output_config = {
-        "consoleout_backup": "stdout",
-        "policy_training_progress": "csv",
-        "dynamics_training_progress": "csv",
-        "tb": "tensorboard"
-    }
-    logger = Logger(log_dirs, output_config)
-    logger.log_hyperparameters(vars(args))
-
-    dynamics_model = TransformerDynamicsModel_v2(
-        obs_dim=obs_dim,
-        act_dim=action_dim,
-        obs_min = -1,
-        obs_max = 1,
-        act_min = -1,
-        act_max = 1,
-        r_min = 0,
-        r_max = 1,
-        ckpt_dir = logger.checkpoint_dir,
-        # hidden_dims=args.dynamics_hidden_dims,
-        # r_hidden_dims=args.dynamics_hidden_dims,
-        device = args.device,
-        n_layer = args.n_layer,
-        n_head = args.n_head,
-        n_embd = args.n_embd
-    )
-    
-    dynamics_optim = dynamics_model.configure_optimizer(
-        lr = args.dynamics_lr,
-        weight_decay= 0. ,
-        betas = (0.9, 0.999)
-    )
-    dynamics = TransformerDynamics_v2(
-        dynamics_model,
-        # reward_model,
-        dynamics_optim,
-        # r_optim
-        # scaler,
-        # termination_fn
-    )
-
-    # create rollout policy
-    diffusion_policy = SimpleDiffusionPolicy(
-        obs_shape = args.obs_shape,
-        act_shape= args.action_shape,
-        feature_dim = 1,
-        num_training_steps = args.behavior_epoch,
-        num_diffusion_steps = args.num_diffusion_iters,
-        device = args.device
-    )
-
-    diff_lr_scheduler = diffusion_policy.get_lr_scheduler()
-
-    diff_log_dirs = make_log_dirs(args.task, args.algo_name, args.seed, vars(args), part="diffusion", record_params=['sample_ratio','task_weight'])
-    print(f"Logging diffusion to {diff_log_dirs}")
-    # key: output file name, value: output handler type
-    diff_output_config = {
-        "consoleout_backup": "stdout",
-        "policy_training_progress": "csv",
-        "dynamics_training_progress": "csv",
-        "tb": "tensorboard"
-    }
-    diff_logger = Logger(diff_log_dirs, diff_output_config)
-    diff_logger.log_hyperparameters(vars(args))
-
-    diff_policy_trainer = DiffusionPolicyTrainer(
-        policy = diffusion_policy,
-        offline_dataset = diff_dataset,
-        logger = diff_logger,
-        seed = args.seed,
-        epoch = args.behavior_epoch,
-        batch_size = args.behavior_batch,
-        lr_scheduler = diff_lr_scheduler,
-        horizon = args.horizon,
-        num_workers = args.num_workers,
-        has_terminal = False,
-        # device = args.device
-    )
-    
-
-    # # create buffer
-    # offline_buffer = ReplayBuffer(
-    #     buffer_size=len(dataset["observations"]),
-    #     obs_shape=args.obs_shape,
-    #     obs_dtype=np.float32,
-    #     action_dim=action_dim,
-    #     action_dtype=np.float32,
-    #     device=args.device
-    # )
-    # offline_buffer.load_dataset(dataset)
-
 
     # Training helper functions
     def get_dynamics():
