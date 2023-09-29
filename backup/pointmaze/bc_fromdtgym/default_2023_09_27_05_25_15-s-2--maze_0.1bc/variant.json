@@ -1,5 +1,5 @@
 {
-  "K": 200,
+  "K": 20,
   "activation_function": "relu",
   "batch_size": 64,
   "data_file": "../maze/dataset/maze2_smds_acc.dat",
